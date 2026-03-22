@@ -1,5 +1,6 @@
 import base64
 import requests
+from loguru import logger
 from config import Config
 
 
@@ -23,9 +24,11 @@ def start_video_job(
         "Authorization": f"Key {cfg.video_api_key}",
         "Content-Type": "application/json",
     }
+    logger.info("Submitting video job | model={} prompt={!r} has_image={}", model, prompt, image_bytes is not None)
     resp = requests.post(url, json=payload, headers=headers)
     resp.raise_for_status()
     request_id = resp.json()["request_id"]
+    logger.info("Video job submitted | request_id={} model={}", request_id, model)
     return request_id, model
 
 
@@ -43,8 +46,11 @@ def poll_video_job(cfg: Config, request_id: str, model: str) -> dict:
         result = requests.get(result_url, headers=headers)
         result.raise_for_status()
         video_url = result.json()["video"]["url"]
+        logger.info("Video job complete | request_id={} url={}", request_id, video_url)
         return {"status": "done", "video_url": video_url}
     elif status == "FAILED":
+        logger.error("Video job failed | request_id={}", request_id)
         return {"status": "error", "message": "Video generation failed"}
     else:
+        logger.debug("Video job pending | request_id={} status={}", request_id, status)
         return {"status": "pending"}

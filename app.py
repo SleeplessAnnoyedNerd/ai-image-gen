@@ -1,5 +1,6 @@
 import io
 import threading
+from loguru import logger
 from flask import (
     Flask, render_template, request, redirect, url_for,
     session, send_file, abort
@@ -49,6 +50,7 @@ def create_app(cfg: Config | None = None) -> Flask:
         )
 
         job_id = job_store.create_job()
+        logger.info("Job created | job_id={} output_type={} prompt={!r}", job_id, output_type, prompt)
 
         if output_type == "image":
             threading.Thread(
@@ -126,7 +128,9 @@ def _run_image_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | N
     try:
         data = image_gen.generate_image(cfg, prompt, image_bytes)
         job_store.update_job(job_id, {"status": "done", "output_type": "image", "data": data})
+        logger.info("Image job done | job_id={}", job_id)
     except Exception as exc:
+        logger.exception("Image job failed | job_id={}", job_id)
         job_store.update_job(job_id, {"status": "error", "error": str(exc)})
 
 
@@ -148,6 +152,7 @@ def _run_video_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | N
                 raise RuntimeError(result.get("message", "Video generation failed"))
         raise TimeoutError("Video generation timed out after 4 minutes")
     except Exception as exc:
+        logger.exception("Video job failed | job_id={}", job_id)
         job_store.update_job(job_id, {"status": "error", "error": str(exc)})
 
 
