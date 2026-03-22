@@ -159,10 +159,18 @@ def create_app(cfg: Config | None = None) -> Flask:
                 io.BytesIO(job["data"]),
                 mimetype="image/png",
                 as_attachment=True,
-                download_name="generated.png",
+                download_name=f"{job_id}.png",
             )
         else:
-            return redirect(job["video_url"])
+            import requests as req
+            r = req.get(job["video_url"], stream=True)
+            r.raise_for_status()
+            return send_file(
+                io.BytesIO(r.content),
+                mimetype="video/mp4",
+                as_attachment=True,
+                download_name=f"{job_id}.mp4",
+            )
 
     return app
 

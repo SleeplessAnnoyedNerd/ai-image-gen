@@ -2,14 +2,46 @@ import base64
 import io
 import requests as _requests
 from loguru import logger
-from openai import OpenAI
+from openai import OpenAI, AzureOpenAI
 from config import Config
 
 
 def generate_image(cfg: Config, prompt: str, image_bytes: bytes | None = None) -> bytes:
     if cfg.image_backend == "fal":
         return _generate_fal(cfg, prompt, image_bytes)
+    if cfg.image_backend == "azure":
+        return _generate_azure(cfg, prompt, image_bytes)
     return _generate_openai(cfg, prompt, image_bytes)
+
+
+def _generate_azure(cfg: Config, prompt: str, image_bytes: bytes | None) -> bytes:
+    client = AzureOpenAI(
+        api_key=cfg.image_api_key,
+        azure_endpoint=cfg.image_api_url,
+        api_version=cfg.image_api_version,
+    )
+
+    if image_bytes is None:
+        logger.info("Generating image (azure) | model={} prompt={!r}", cfg.image_model, prompt)
+        response = client.images.generate(
+            model=cfg.image_model,
+            prompt=prompt,
+            response_format="b64_json",
+            n=1,
+        )
+    else:
+        logger.info("Editing image (azure) | model={} prompt={!r}", cfg.image_model_edit, prompt)
+        response = client.images.edit(
+            model=cfg.image_model_edit,
+            image=io.BytesIO(image_bytes),
+            prompt=prompt,
+            response_format="b64_json",
+            n=1,
+        )
+
+    result = base64.b64decode(response.data[0].b64_json)
+    logger.info("Azure image generation complete | size={} bytes", len(result))
+    return result
 
 
 def _generate_openai(cfg: Config, prompt: str, image_bytes: bytes | None) -> bytes:
