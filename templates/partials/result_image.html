@@ -4,12 +4,18 @@
        alt="Generated image"
        class="w-full rounded-2xl shadow-lg" />
 
-  <div class="flex gap-4">
+  <div class="flex gap-4 flex-wrap">
     <a href="/download/{{ job_id }}"
        class="flex-1 text-center py-3 text-lg font-bold rounded-2xl
               bg-green-600 hover:bg-green-700 text-white transition-colors">
       {{ t.download }}
     </a>
+    <button id="save-photos-btn-{{ job_id }}"
+            onclick="saveToPhotos('{{ job_id }}', this)"
+            class="flex-1 py-3 text-lg font-bold rounded-2xl
+                   bg-sky-500 hover:bg-sky-600 text-white transition-colors hidden">
+      {{ t.save_to_photos }}
+    </button>
     <button onclick="document.getElementById('result-area').innerHTML=''"
             class="flex-1 py-3 text-lg font-bold rounded-2xl
                    bg-gray-200 hover:bg-gray-300 text-gray-700 transition-colors">
@@ -18,3 +24,27 @@
   </div>
 
 </div>
+
+<script>
+(function () {
+  var btn = document.getElementById('save-photos-btn-{{ job_id }}');
+  try {
+    var testFile = new File([], 't.png', { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [testFile] })) {
+      btn.classList.remove('hidden');
+    }
+  } catch (e) {}
+})();
+
+async function saveToPhotos(jobId, btn) {
+  btn.disabled = true;
+  try {
+    var resp = await fetch('/image/' + jobId);
+    var blob = await resp.blob();
+    var file = new File([blob], 'generated.png', { type: 'image/png' });
+    await navigator.share({ files: [file] });
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>

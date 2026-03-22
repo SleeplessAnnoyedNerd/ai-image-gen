@@ -3,12 +3,18 @@
   <video src="{{ video_url }}" controls
          class="w-full rounded-2xl shadow-lg"></video>
 
-  <div class="flex gap-4">
+  <div class="flex gap-4 flex-wrap">
     <a href="/download/{{ job_id }}"
        class="flex-1 text-center py-3 text-lg font-bold rounded-2xl
               bg-green-600 hover:bg-green-700 text-white transition-colors">
       {{ t.download }}
     </a>
+    <button id="save-photos-btn-{{ job_id }}"
+            onclick="saveVideoToPhotos('{{ job_id }}', this)"
+            class="flex-1 py-3 text-lg font-bold rounded-2xl
+                   bg-sky-500 hover:bg-sky-600 text-white transition-colors hidden">
+      {{ t.save_to_photos }}
+    </button>
     <button onclick="document.getElementById('result-area').innerHTML=''"
             class="flex-1 py-3 text-lg font-bold rounded-2xl
                    bg-gray-200 hover:bg-gray-300 text-gray-700 transition-colors">
@@ -17,3 +23,29 @@
   </div>
 
 </div>
+
+<script>
+(function () {
+  var btn = document.getElementById('save-photos-btn-{{ job_id }}');
+  if (navigator.share) {
+    btn.classList.remove('hidden');
+  }
+})();
+
+async function saveVideoToPhotos(jobId, btn) {
+  btn.disabled = true;
+  try {
+    // Try file share first; fall back to URL share if not supported.
+    var resp = await fetch('/video/' + jobId);
+    var blob = await resp.blob();
+    var file = new File([blob], 'generated.mp4', { type: 'video/mp4' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] });
+    } else {
+      await navigator.share({ url: window.location.origin + '/video/' + jobId });
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>

@@ -11,4 +11,10 @@
 
   <p class="text-lg text-gray-600 font-medium">{{ t.generating }}</p>
 
+  {% if progress == "in_progress" %}
+  <p class="text-sm text-blue-600 font-medium">{{ t.progress_running }}</p>
+  {% elif progress %}
+  <p class="text-sm text-gray-500">{{ t.progress_queued.format(progress) }}</p>
+  {% endif %}
+
 </div>

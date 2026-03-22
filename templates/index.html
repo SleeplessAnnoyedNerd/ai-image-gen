@@ -35,7 +35,7 @@
     </div>
 
     <!-- Output type buttons -->
-    <div class="flex gap-4 pt-2">
+    <div class="flex gap-4 pt-2 flex-wrap">
       <button type="submit" name="output_type" value="image"
               class="flex-1 py-4 text-xl font-bold rounded-2xl
                      bg-blue-600 hover:bg-blue-700 text-white
@@ -48,6 +48,30 @@
                      transition-colors">
         {{ t.generate_video }}
       </button>
+      {% if sd_enabled %}
+      <button id="sd-btn" type="submit" name="output_type" value="sd" disabled
+              class="flex-1 py-4 text-xl font-bold rounded-2xl
+                     bg-orange-300 text-white transition-colors cursor-wait">
+        {{ t.sd_checking }}
+      </button>
+      <script>
+        fetch('/sd-status')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            var btn = document.getElementById('sd-btn');
+            if (data.online) {
+              btn.disabled = false;
+              btn.textContent = {{ t.generate_sd | tojson }};
+              btn.className = btn.className
+                .replace('bg-orange-300', 'bg-orange-600 hover:bg-orange-700')
+                .replace('cursor-wait', 'cursor-pointer');
+            } else {
+              btn.textContent = {{ t.sd_offline | tojson }};
+              btn.className = btn.className.replace('cursor-wait', 'cursor-not-allowed');
+            }
+          });
+      </script>
+      {% endif %}
     </div>
 
   </form>
