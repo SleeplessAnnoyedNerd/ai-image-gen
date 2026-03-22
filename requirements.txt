@@ -1,0 +1,7 @@
+loguru
+pytest
+anthropic
+openai
+pytest-asyncio
+requests
+flask
