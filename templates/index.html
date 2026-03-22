@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="bg-white rounded-2xl shadow p-8 space-y-6">
+
+  <form hx-post="/generate"
+        hx-target="#result-area"
+        hx-swap="outerHTML"
+        hx-encoding="multipart/form-data"
+        class="space-y-6">
+
+    <!-- Prompt -->
+    <div>
+      <label class="block text-lg font-semibold text-gray-700 mb-2">
+        {{ t.prompt_label }}
+      </label>
+      <textarea name="prompt" rows="3" required
+                class="w-full border border-gray-300 rounded-xl p-3 text-lg
+                       focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder="Describe what you want to create…"></textarea>
+    </div>
+
+    <!-- Image upload -->
+    <div>
+      <label class="block text-lg font-semibold text-gray-700 mb-2">
+        {{ t.upload_label }}
+      </label>
+      <input type="file" name="image" accept="image/*"
+             class="block w-full text-lg text-gray-600
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-xl file:border-0
+                    file:text-lg file:font-semibold
+                    file:bg-blue-50 file:text-blue-700
+                    hover:file:bg-blue-100" />
+    </div>
+
+    <!-- Output type buttons -->
+    <div class="flex gap-4 pt-2">
+      <button type="submit" name="output_type" value="image"
+              class="flex-1 py-4 text-xl font-bold rounded-2xl
+                     bg-blue-600 hover:bg-blue-700 text-white
+                     transition-colors">
+        {{ t.generate_image }}
+      </button>
+      <button type="submit" name="output_type" value="video"
+              class="flex-1 py-4 text-xl font-bold rounded-2xl
+                     bg-purple-600 hover:bg-purple-700 text-white
+                     transition-colors">
+        {{ t.generate_video }}
+      </button>
+    </div>
+
+  </form>
+
+  <!-- Result area replaced by htmx -->
+  <div id="result-area"></div>
+
+</div>
+
+{% endblock %}

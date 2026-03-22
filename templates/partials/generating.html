@@ -1,0 +1,14 @@
+<div id="result-area"
+     hx-get="/status/{{ job_id }}"
+     hx-trigger="load delay:2s"
+     hx-target="#result-area"
+     hx-swap="outerHTML"
+     class="mt-6 flex flex-col items-center justify-center gap-4 py-10">
+
+  <!-- Spinner -->
+  <div class="w-16 h-16 border-4 border-blue-300 border-t-blue-600
+              rounded-full animate-spin"></div>
+
+  <p class="text-lg text-gray-600 font-medium">{{ t.generating }}</p>
+
+</div>

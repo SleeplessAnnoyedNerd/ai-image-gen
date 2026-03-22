@@ -26,6 +26,13 @@ def test_config_from_env(monkeypatch):
 
 
 def test_config_missing_required_var(monkeypatch):
+    monkeypatch.setenv("IMAGE_API_URL", "https://img.example.com/v1")
     monkeypatch.delenv("IMAGE_API_KEY", raising=False)
+    monkeypatch.setenv("IMAGE_MODEL", "my/image-model")
+    monkeypatch.setenv("VIDEO_API_URL", "https://vid.example.com")
+    monkeypatch.setenv("VIDEO_API_KEY", "vid-key")
+    monkeypatch.setenv("VIDEO_MODEL_IMAGE", "my/vid-img-model")
+    monkeypatch.setenv("VIDEO_MODEL_TEXT", "my/vid-txt-model")
+    monkeypatch.setenv("FLASK_SECRET_KEY", "s3cr3t")
     with pytest.raises(EnvironmentError, match="IMAGE_API_KEY"):
         Config.from_env()
