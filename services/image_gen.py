@@ -6,18 +6,32 @@ from openai import OpenAI, AzureOpenAI
 from config import Config
 
 
-def generate_image(cfg: Config, prompt: str, image_bytes: bytes | None = None) -> bytes:
+def generate_image(
+    cfg: Config,
+    prompt: str,
+    image_bytes: bytes | None = None,
+    model: str | None = None,
+    model_edit: str | None = None,
+) -> bytes:
+    model = model or cfg.image_model[0]
+    model_edit = model_edit or cfg.image_model_edit[0]
     if cfg.image_backend == "fal":
-        return _generate_fal(cfg, prompt, image_bytes)
+        return _generate_fal(cfg, prompt, image_bytes, model, model_edit)
     if cfg.image_backend == "azure":
-        return _generate_azure(cfg, prompt, image_bytes)
-    return _generate_openai(cfg, prompt, image_bytes)
+        return _generate_azure(cfg, prompt, image_bytes, model, model_edit)
+    return _generate_openai(cfg, prompt, image_bytes, model, model_edit)
 
 
-def _generate_azure(cfg: Config, prompt: str, image_bytes: bytes | None) -> bytes:
+def _generate_azure(
+    cfg: Config,
+    prompt: str,
+    image_bytes: bytes | None,
+    model: str,
+    model_edit: str,
+) -> bytes:
     logger.info(
         "Azure config | endpoint={} api_version={} model={} model_edit={}",
-        cfg.image_api_url, cfg.image_api_version, cfg.image_model, cfg.image_model_edit,
+        cfg.image_api_url, cfg.image_api_version, model, model_edit,
     )
     client = AzureOpenAI(
         api_key=cfg.image_api_key,
@@ -26,18 +40,14 @@ def _generate_azure(cfg: Config, prompt: str, image_bytes: bytes | None) -> byte
     )
 
     if image_bytes is None:
-        logger.info("Generating image (azure) | model={} prompt={!r}", cfg.image_model, prompt)
-        response = client.images.generate(
-            model=cfg.image_model,
-            prompt=prompt,
-            n=1,
-        )
+        logger.info("Generating image (azure) | model={} prompt={!r}", model, prompt)
+        response = client.images.generate(model=model, prompt=prompt, n=1)
     else:
-        logger.info("Editing image (azure) | model={} prompt={!r}", cfg.image_model_edit, prompt)
+        logger.info("Editing image (azure) | model={} prompt={!r}", model_edit, prompt)
         mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
         ext = "png" if mime == "image/png" else "jpg"
         response = client.images.edit(
-            model=cfg.image_model_edit,
+            model=model_edit,
             image=(f"image.{ext}", io.BytesIO(image_bytes), mime),
             prompt=prompt,
             n=1,
@@ -54,21 +64,24 @@ def _generate_azure(cfg: Config, prompt: str, image_bytes: bytes | None) -> byte
     return result
 
 
-def _generate_openai(cfg: Config, prompt: str, image_bytes: bytes | None) -> bytes:
+def _generate_openai(
+    cfg: Config,
+    prompt: str,
+    image_bytes: bytes | None,
+    model: str,
+    model_edit: str,
+) -> bytes:
     client = OpenAI(api_key=cfg.image_api_key, base_url=cfg.image_api_url)
 
     if image_bytes is None:
-        logger.info("Generating image (openai) | model={} prompt={!r}", cfg.image_model, prompt)
+        logger.info("Generating image (openai) | model={} prompt={!r}", model, prompt)
         response = client.images.generate(
-            model=cfg.image_model,
-            prompt=prompt,
-            response_format="b64_json",
-            n=1,
+            model=model, prompt=prompt, response_format="b64_json", n=1,
         )
     else:
-        logger.info("Editing image (openai) | model={} prompt={!r}", cfg.image_model, prompt)
+        logger.info("Editing image (openai) | model={} prompt={!r}", model_edit, prompt)
         response = client.images.edit(
-            model=cfg.image_model,
+            model=model_edit,
             image=io.BytesIO(image_bytes),
             prompt=prompt,
             response_format="b64_json",
@@ -80,25 +93,34 @@ def _generate_openai(cfg: Config, prompt: str, image_bytes: bytes | None) -> byt
     return result
 
 
-def _generate_fal(cfg: Config, prompt: str, image_bytes: bytes | None) -> bytes:
+def _generate_fal(
+    cfg: Config,
+    prompt: str,
+    image_bytes: bytes | None,
+    model: str,
+    model_edit: str,
+) -> bytes:
     if image_bytes is not None:
-        model = cfg.image_model_edit
         img_b64 = base64.b64encode(image_bytes).decode()
         payload: dict = {
             "prompt": prompt,
             "image_urls": [f"data:image/jpeg;base64,{img_b64}"],
         }
+        active_model = model_edit
     else:
-        model = cfg.image_model
         payload = {"prompt": prompt}
+        active_model = model
 
-    url = f"{cfg.image_api_url.rstrip('/')}/{model}"
+    url = f"{cfg.image_api_url.rstrip('/')}/{active_model}"
     headers = {
         "Authorization": f"Key {cfg.image_api_key}",
         "Content-Type": "application/json",
     }
 
-    logger.info("Generating image (fal) | url={} prompt={!r} has_image={}", url, prompt, image_bytes is not None)
+    logger.info(
+        "Generating image (fal) | url={} prompt={!r} has_image={}",
+        url, prompt, image_bytes is not None,
+    )
     resp = _requests.post(url, json=payload, headers=headers)
     resp.raise_for_status()
 
