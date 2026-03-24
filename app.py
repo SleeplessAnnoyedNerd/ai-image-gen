@@ -142,12 +142,13 @@ def create_app(cfg: Config | None = None) -> Flask:
         job = job_store.get_job(job_id)
         if not job or job.get("status") != "done" or job.get("output_type") != "video":
             abort(404)
-        r = req.get(job["video_url"], stream=True)
-        r.raise_for_status()
-        return send_file(
-            io.BytesIO(r.content),
-            mimetype="video/mp4",
-        )
+        if job.get("video_data"):
+            data = job["video_data"]
+        else:
+            r = req.get(job["video_url"], stream=True)
+            r.raise_for_status()
+            data = r.content
+        return send_file(io.BytesIO(data), mimetype="video/mp4")
 
     @app.get("/download/<job_id>")
     def download(job_id):
@@ -162,11 +163,15 @@ def create_app(cfg: Config | None = None) -> Flask:
                 download_name=f"{job_id}.png",
             )
         else:
-            import requests as req
-            r = req.get(job["video_url"], stream=True)
-            r.raise_for_status()
+            if job.get("video_data"):
+                data = job["video_data"]
+            else:
+                import requests as req
+                r = req.get(job["video_url"], stream=True)
+                r.raise_for_status()
+                data = r.content
             return send_file(
-                io.BytesIO(r.content),
+                io.BytesIO(data),
                 mimetype="video/mp4",
                 as_attachment=True,
                 download_name=f"{job_id}.mp4",
@@ -203,21 +208,20 @@ def _run_video_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | N
     import time
     try:
         submit = video_gen.start_video_job(cfg, prompt, image_bytes)
-        status_url = submit["status_url"]
-        response_url = submit["response_url"]
         for _ in range(120):          # poll up to 4 minutes (120 × 2s)
             time.sleep(2)
-            result = video_gen.poll_video_job(cfg, status_url, response_url)
+            result = video_gen.poll_video_job(cfg, submit)
             qp = result.get("queue_position")
             job_store.update_job(job_id, {
                 "progress": "in_progress" if qp is None else str(qp)
             })
             if result["status"] == "done":
-                job_store.update_job(job_id, {
-                    "status": "done",
-                    "output_type": "video",
-                    "video_url": result["video_url"],
-                })
+                update = {"status": "done", "output_type": "video"}
+                if "video_data" in result:
+                    update["video_data"] = result["video_data"]
+                else:
+                    update["video_url"] = result["video_url"]
+                job_store.update_job(job_id, update)
                 return
             if result["status"] == "error":
                 raise RuntimeError(result.get("message", "Video generation failed"))
