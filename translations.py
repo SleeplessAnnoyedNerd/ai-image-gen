@@ -17,6 +17,10 @@ _STRINGS = {
         "error_generic": "Something went wrong. Please try again.",
         "lang_switch": "Deutsch",
         "lang_switch_target": "de",
+        "model_image":       "Image model (text→image)",
+        "model_image_edit":  "Edit model (image→image)",
+        "model_video_text":  "Video model (text→video)",
+        "model_video_image": "Video model (image→video)",
     },
     "de": {
         "title": "KI-Bild- & Videogenerator",
@@ -36,6 +40,10 @@ _STRINGS = {
         "error_generic": "Ein Fehler ist aufgetreten. Bitte erneut versuchen.",
         "lang_switch": "English",
         "lang_switch_target": "en",
+        "model_image":       "Bildmodell (Text→Bild)",
+        "model_image_edit":  "Bearbeitungsmodell (Bild→Bild)",
+        "model_video_text":  "Videomodell (Text→Video)",
+        "model_video_image": "Videomodell (Bild→Video)",
     },
 }
 
