@@ -15,6 +15,10 @@ def generate_image(cfg: Config, prompt: str, image_bytes: bytes | None = None) -
 
 
 def _generate_azure(cfg: Config, prompt: str, image_bytes: bytes | None) -> bytes:
+    logger.info(
+        "Azure config | endpoint={} api_version={} model={} model_edit={}",
+        cfg.image_api_url, cfg.image_api_version, cfg.image_model, cfg.image_model_edit,
+    )
     client = AzureOpenAI(
         api_key=cfg.image_api_key,
         azure_endpoint=cfg.image_api_url,
@@ -26,20 +30,26 @@ def _generate_azure(cfg: Config, prompt: str, image_bytes: bytes | None) -> byte
         response = client.images.generate(
             model=cfg.image_model,
             prompt=prompt,
-            response_format="b64_json",
             n=1,
         )
     else:
         logger.info("Editing image (azure) | model={} prompt={!r}", cfg.image_model_edit, prompt)
+        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
+        ext = "png" if mime == "image/png" else "jpg"
         response = client.images.edit(
             model=cfg.image_model_edit,
-            image=io.BytesIO(image_bytes),
+            image=(f"image.{ext}", io.BytesIO(image_bytes), mime),
             prompt=prompt,
-            response_format="b64_json",
             n=1,
         )
 
-    result = base64.b64decode(response.data[0].b64_json)
+    item = response.data[0]
+    if item.b64_json:
+        result = base64.b64decode(item.b64_json)
+    else:
+        img_resp = _requests.get(item.url)
+        img_resp.raise_for_status()
+        result = img_resp.content
     logger.info("Azure image generation complete | size={} bytes", len(result))
     return result
 
