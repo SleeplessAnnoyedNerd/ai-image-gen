@@ -101,10 +101,11 @@ def _generate_fal(
     model_edit: str,
 ) -> bytes:
     if image_bytes is not None:
+        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
         img_b64 = base64.b64encode(image_bytes).decode()
         payload: dict = {
             "prompt": prompt,
-            "image_urls": [f"data:image/jpeg;base64,{img_b64}"],
+            "image_urls": [f"data:{mime};base64,{img_b64}"],
         }
         active_model = model_edit
     else:
