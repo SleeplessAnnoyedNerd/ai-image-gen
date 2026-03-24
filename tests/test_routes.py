@@ -31,17 +31,24 @@ def test_generate_image_job_starts(client):
 
 
 def test_generate_image_respects_model_selection(client):
-    """Model selected in POST form is passed to generate_image."""
-    with patch("app.image_gen.generate_image", return_value=b"png-bytes") as mock_gen:
+    """Model selected in POST form is forwarded to generate_image."""
+    with patch("app.image_gen.generate_image", return_value=b"png-bytes") as mock_gen, \
+         patch("app.threading.Thread") as mock_thread:
+        # Make Thread run the target synchronously instead of in background
+        mock_thread.side_effect = lambda target, args, daemon: \
+            type("T", (), {"start": lambda self: target(*args)})()
+
         client.post("/generate", data={
             "output_type": "image",
             "prompt": "a sunset",
             "image_model": "custom/model",
+            "image_model_edit": "custom/edit-model",
         })
-    import time; time.sleep(0.15)
-    if mock_gen.called:
-        kwargs = mock_gen.call_args.kwargs
-        assert kwargs.get("model") == "custom/model"
+
+    assert mock_gen.called
+    kwargs = mock_gen.call_args.kwargs
+    assert kwargs.get("model") == "custom/model"
+    assert kwargs.get("model_edit") == "custom/edit-model"
 
 
 def test_status_pending(client):
