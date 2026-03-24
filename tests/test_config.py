@@ -1,38 +1,66 @@
-import os
 import pytest
-from config import Config
+from config import Config, _parse_list
 
 
-def test_config_from_env(monkeypatch):
-    monkeypatch.setenv("IMAGE_API_URL", "https://img.example.com/v1")
-    monkeypatch.setenv("IMAGE_API_KEY", "img-key")
-    monkeypatch.setenv("IMAGE_MODEL", "my/image-model")
-    monkeypatch.setenv("VIDEO_API_URL", "https://vid.example.com")
-    monkeypatch.setenv("VIDEO_API_KEY", "vid-key")
-    monkeypatch.setenv("VIDEO_MODEL_IMAGE", "my/vid-img-model")
-    monkeypatch.setenv("VIDEO_MODEL_TEXT", "my/vid-txt-model")
-    monkeypatch.setenv("FLASK_SECRET_KEY", "s3cr3t")
+# --- unit tests for _parse_list ---
 
+def test_parse_list_single():
+    assert _parse_list("model-a") == ["model-a"]
+
+
+def test_parse_list_multiple():
+    assert _parse_list("model-a, model-b , model-c") == ["model-a", "model-b", "model-c"]
+
+
+def test_parse_list_strips_whitespace():
+    assert _parse_list("  x  ,  y  ") == ["x", "y"]
+
+
+def test_parse_list_ignores_empty_segments():
+    assert _parse_list("a,,b") == ["a", "b"]
+
+
+# --- Config.from_env ---
+
+def _set_required_env(monkeypatch, overrides=None):
+    defaults = {
+        "IMAGE_API_URL": "https://img.example.com/v1",
+        "IMAGE_API_KEY": "img-key",
+        "IMAGE_MODEL": "my/image-model",
+        "IMAGE_MODEL_EDIT": "my/edit-model",
+        "VIDEO_API_URL": "https://vid.example.com",
+        "VIDEO_API_KEY": "vid-key",
+        "VIDEO_MODEL_IMAGE": "my/vid-img-model",
+        "VIDEO_MODEL_TEXT": "my/vid-txt-model",
+        "FLASK_SECRET_KEY": "s3cr3t",
+    }
+    if overrides:
+        defaults.update(overrides)
+    for k, v in defaults.items():
+        monkeypatch.setenv(k, v)
+
+
+def test_config_from_env_single_models(monkeypatch):
+    _set_required_env(monkeypatch)
     cfg = Config.from_env()
+    assert cfg.image_model == ["my/image-model"]
+    assert cfg.image_model_edit == ["my/edit-model"]
+    assert cfg.video_model_image == ["my/vid-img-model"]
+    assert cfg.video_model_text == ["my/vid-txt-model"]
 
-    assert cfg.image_api_url == "https://img.example.com/v1"
-    assert cfg.image_api_key == "img-key"
-    assert cfg.image_model == "my/image-model"
-    assert cfg.video_api_url == "https://vid.example.com"
-    assert cfg.video_api_key == "vid-key"
-    assert cfg.video_model_image == "my/vid-img-model"
-    assert cfg.video_model_text == "my/vid-txt-model"
-    assert cfg.secret_key == "s3cr3t"
+
+def test_config_from_env_multi_models(monkeypatch):
+    _set_required_env(monkeypatch, {
+        "IMAGE_MODEL": "model-a, model-b",
+        "VIDEO_MODEL_TEXT": "vid-x,vid-y,vid-z",
+    })
+    cfg = Config.from_env()
+    assert cfg.image_model == ["model-a", "model-b"]
+    assert cfg.video_model_text == ["vid-x", "vid-y", "vid-z"]
 
 
 def test_config_missing_required_var(monkeypatch):
-    monkeypatch.setenv("IMAGE_API_URL", "https://img.example.com/v1")
-    monkeypatch.delenv("IMAGE_API_KEY", raising=False)
-    monkeypatch.setenv("IMAGE_MODEL", "my/image-model")
-    monkeypatch.setenv("VIDEO_API_URL", "https://vid.example.com")
-    monkeypatch.setenv("VIDEO_API_KEY", "vid-key")
-    monkeypatch.setenv("VIDEO_MODEL_IMAGE", "my/vid-img-model")
-    monkeypatch.setenv("VIDEO_MODEL_TEXT", "my/vid-txt-model")
-    monkeypatch.setenv("FLASK_SECRET_KEY", "s3cr3t")
+    _set_required_env(monkeypatch)
+    monkeypatch.delenv("IMAGE_API_KEY")
     with pytest.raises(EnvironmentError, match="IMAGE_API_KEY"):
         Config.from_env()
