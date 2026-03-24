@@ -71,7 +71,8 @@ def _poll_fal(cfg: Config, submit: dict) -> dict:
 
     resp = requests.get(status_url, headers=headers)
     resp.raise_for_status()
-    status = resp.json().get("status")
+    data = resp.json()
+    status = data.get("status")
 
     if status == "COMPLETED":
         result = requests.get(response_url, headers=headers)
@@ -85,7 +86,7 @@ def _poll_fal(cfg: Config, submit: dict) -> dict:
     elif status == "IN_PROGRESS":
         return {"status": "pending", "queue_position": None}
     else:
-        queue_position = resp.json().get("queue_position")
+        queue_position = data.get("queue_position")
         return {"status": "pending", "queue_position": queue_position}
 
 

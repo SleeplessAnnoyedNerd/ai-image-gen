@@ -101,3 +101,17 @@ def test_start_fal_uses_explicit_model_text(cfg):
 
         url_called = mock_post.call_args[0][0]
         assert "custom/vid" in url_called
+
+
+def test_start_fal_uses_explicit_model_image(cfg):
+    with patch("services.video_gen.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "request_id": "r1", "status_url": "http://s", "response_url": "http://r"
+        }
+        mock_post.return_value.raise_for_status = lambda: None
+
+        from services.video_gen import start_video_job
+        start_video_job(cfg, prompt="flying bird", image_bytes=b"img", model_image="custom/img-vid")
+
+        url_called = mock_post.call_args[0][0]
+        assert "custom/img-vid" in url_called
