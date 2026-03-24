@@ -37,7 +37,15 @@ def create_app(cfg: Config | None = None) -> Flask:
 
     @app.get("/")
     def index():
-        return render_template("index.html", t=t(), sd_enabled=bool(cfg.sd_api_url))
+        return render_template(
+            "index.html",
+            t=t(),
+            sd_enabled=bool(cfg.sd_api_url),
+            image_models=cfg.image_model,
+            image_models_edit=cfg.image_model_edit,
+            video_models_image=cfg.video_model_image,
+            video_models_text=cfg.video_model_text,
+        )
 
     @app.post("/lang")
     def set_lang():
@@ -70,13 +78,18 @@ def create_app(cfg: Config | None = None) -> Flask:
             else None
         )
 
+        image_model       = request.form.get("image_model")       or cfg.image_model[0]
+        image_model_edit  = request.form.get("image_model_edit")  or cfg.image_model_edit[0]
+        video_model_image = request.form.get("video_model_image") or cfg.video_model_image[0]
+        video_model_text  = request.form.get("video_model_text")  or cfg.video_model_text[0]
+
         job_id = job_store.create_job()
         logger.info("Job created | job_id={} output_type={} prompt={!r}", job_id, output_type, prompt)
 
         if output_type == "image":
             threading.Thread(
                 target=_run_image_job,
-                args=(cfg, job_id, prompt, image_bytes),
+                args=(cfg, job_id, prompt, image_bytes, image_model, image_model_edit),
                 daemon=True,
             ).start()
         elif output_type == "sd":
@@ -88,7 +101,7 @@ def create_app(cfg: Config | None = None) -> Flask:
         else:
             threading.Thread(
                 target=_run_video_job,
-                args=(cfg, job_id, prompt, image_bytes),
+                args=(cfg, job_id, prompt, image_bytes, video_model_image, video_model_text),
                 daemon=True,
             ).start()
 
@@ -184,9 +197,10 @@ def create_app(cfg: Config | None = None) -> Flask:
 # Background workers                                                   #
 # ------------------------------------------------------------------ #
 
-def _run_image_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | None):
+def _run_image_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | None,
+                   model: str, model_edit: str):
     try:
-        data = image_gen.generate_image(cfg, prompt, image_bytes)
+        data = image_gen.generate_image(cfg, prompt, image_bytes, model=model, model_edit=model_edit)
         job_store.update_job(job_id, {"status": "done", "output_type": "image", "data": data})
         logger.info("Image job done | job_id={}", job_id)
     except Exception as exc:
@@ -204,11 +218,15 @@ def _run_sd_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | None
         job_store.update_job(job_id, {"status": "error", "error": str(exc)})
 
 
-def _run_video_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | None):
+def _run_video_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | None,
+                   model_image: str, model_text: str):
     import time
     try:
-        submit = video_gen.start_video_job(cfg, prompt, image_bytes)
-        for _ in range(120):          # poll up to 4 minutes (120 × 2s)
+        submit = video_gen.start_video_job(
+            cfg, prompt, image_bytes,
+            model_image=model_image, model_text=model_text,
+        )
+        for _ in range(120):
             time.sleep(2)
             result = video_gen.poll_video_job(cfg, submit)
             qp = result.get("queue_position")

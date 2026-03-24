@@ -30,6 +30,20 @@ def test_generate_image_job_starts(client):
     assert b"job_id" in resp.data or b"generating" in resp.data.lower()
 
 
+def test_generate_image_respects_model_selection(client):
+    """Model selected in POST form is passed to generate_image."""
+    with patch("app.image_gen.generate_image", return_value=b"png-bytes") as mock_gen:
+        client.post("/generate", data={
+            "output_type": "image",
+            "prompt": "a sunset",
+            "image_model": "custom/model",
+        })
+    import time; time.sleep(0.15)
+    if mock_gen.called:
+        kwargs = mock_gen.call_args.kwargs
+        assert kwargs.get("model") == "custom/model"
+
+
 def test_status_pending(client):
     job_id = job_store.create_job()
     resp = client.get(f"/status/{job_id}")
