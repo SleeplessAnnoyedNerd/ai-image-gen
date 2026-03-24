@@ -4,15 +4,23 @@ from loguru import logger
 from config import Config
 
 
-def start_video_job(cfg: Config, prompt: str, image_bytes: bytes | None) -> dict:
+def start_video_job(
+    cfg: Config,
+    prompt: str,
+    image_bytes: bytes | None,
+    model_image: str | None = None,
+    model_text: str | None = None,
+) -> dict:
     """Submit a video generation job. Returns a submit-context dict for poll_video_job."""
+    model_image = model_image or cfg.video_model_image[0]
+    model_text = model_text or cfg.video_model_text[0]
     if cfg.video_backend == "azure":
-        return _start_azure(cfg, prompt, image_bytes)
-    return _start_fal(cfg, prompt, image_bytes)
+        return _start_azure(cfg, prompt, image_bytes, model_image, model_text)
+    return _start_fal(cfg, prompt, image_bytes, model_image, model_text)
 
 
 def poll_video_job(cfg: Config, submit: dict) -> dict:
-    """Poll a previously submitted job. Returns status dict.
+    """Poll a previously submitted job.
     Keys: status ("pending"|"done"|"error"), queue_position (int|None),
           video_url (str, fal) OR video_data (bytes, azure), message (str on error).
     """
@@ -25,21 +33,30 @@ def poll_video_job(cfg: Config, submit: dict) -> dict:
 # fal.ai backend                                                       #
 # ------------------------------------------------------------------ #
 
-def _start_fal(cfg: Config, prompt: str, image_bytes: bytes | None) -> dict:
+def _start_fal(
+    cfg: Config,
+    prompt: str,
+    image_bytes: bytes | None,
+    model_image: str,
+    model_text: str,
+) -> dict:
     if image_bytes is not None:
-        model = cfg.video_model_image
+        model = model_image
         img_b64 = base64.b64encode(image_bytes).decode()
         payload = {
             "prompt": prompt,
             "image_url": f"data:image/jpeg;base64,{img_b64}",
         }
     else:
-        model = cfg.video_model_text
+        model = model_text
         payload = {"prompt": prompt}
 
     url = f"{cfg.video_api_url}/{model}"
     headers = {"Authorization": f"Key {cfg.video_api_key}", "Content-Type": "application/json"}
-    logger.info("Submitting fal video job | model={} prompt={!r} has_image={}", model, prompt, image_bytes is not None)
+    logger.info(
+        "Submitting fal video job | model={} prompt={!r} has_image={}",
+        model, prompt, image_bytes is not None,
+    )
     resp = requests.post(url, json=payload, headers=headers)
     resp.raise_for_status()
     data = resp.json()
@@ -76,20 +93,37 @@ def _poll_fal(cfg: Config, submit: dict) -> dict:
 # Azure OpenAI Sora backend                                            #
 # ------------------------------------------------------------------ #
 
-def _start_azure(cfg: Config, prompt: str, image_bytes: bytes | None) -> dict:
-    deployment = cfg.video_model_image if image_bytes else cfg.video_model_text
+def _start_azure(
+    cfg: Config,
+    prompt: str,
+    image_bytes: bytes | None,
+    model_image: str,
+    model_text: str,
+) -> dict:
+    deployment = model_image if image_bytes else model_text
     base = cfg.video_api_url.rstrip("/")
     path = cfg.video_azure_path.format(deployment=deployment)
     url = f"{base}/{path}?api-version={cfg.video_api_version}"
     logger.info("Azure Sora submit URL | {}", url)
     headers = {"api-key": cfg.video_api_key, "Content-Type": "application/json"}
 
-    payload: dict = {"prompt": prompt, "n_seconds": 5, "width": 480, "height": 480, "n_variants": 1}
+    payload: dict = {
+        "prompt": prompt,
+        "n_seconds": 5,
+        "width": 480,
+        "height": 480,
+        "n_variants": 1,
+    }
     if image_bytes is not None:
         mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
-        payload["first_frame_image"] = f"data:{mime};base64,{base64.b64encode(image_bytes).decode()}"
+        payload["first_frame_image"] = (
+            f"data:{mime};base64,{base64.b64encode(image_bytes).decode()}"
+        )
 
-    logger.info("Submitting Azure Sora job | deployment={} prompt={!r} has_image={}", deployment, prompt, image_bytes is not None)
+    logger.info(
+        "Submitting Azure Sora job | deployment={} prompt={!r} has_image={}",
+        deployment, prompt, image_bytes is not None,
+    )
     resp = requests.post(url, json=payload, headers=headers)
     resp.raise_for_status()
     data = resp.json()
@@ -101,7 +135,6 @@ def _start_azure(cfg: Config, prompt: str, image_bytes: bytes | None) -> dict:
 
 def _poll_azure(cfg: Config, submit: dict) -> dict:
     job_url = submit["azure_job_url"]
-    deployment = submit["azure_deployment"]
     headers = {"api-key": cfg.video_api_key}
 
     resp = requests.get(job_url, headers=headers)
@@ -119,7 +152,9 @@ def _poll_azure(cfg: Config, submit: dict) -> dict:
         else:
             base_url = job_url.split("?")[0]
             version = cfg.video_api_version
-            video_resp = requests.get(f"{base_url}/content/video?api-version={version}", headers=headers)
+            video_resp = requests.get(
+                f"{base_url}/content/video?api-version={version}", headers=headers
+            )
             video_resp.raise_for_status()
         logger.info("Azure Sora job complete | size={} bytes", len(video_resp.content))
         return {"status": "done", "video_data": video_resp.content}
