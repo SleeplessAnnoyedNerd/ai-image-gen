@@ -3,6 +3,16 @@
 
 <div class="bg-white rounded-2xl shadow p-8 space-y-6">
 
+  <div class="flex justify-end -mt-2 -mb-4">
+    <button type="button" id="adv-toggle"
+            onclick="toggleAdvanced()"
+            class="text-sm px-3 py-1 rounded-lg border border-gray-300
+                   text-gray-500 hover:text-gray-700 hover:border-gray-400
+                   transition-colors">
+      ⚙ Advanced
+    </button>
+  </div>
+
   <form hx-post="/generate"
         hx-target="#result-area"
         hx-swap="outerHTML"
@@ -48,6 +58,63 @@
         }
       });
     </script>
+
+    <!-- Advanced model selection panel -->
+    <div id="adv-panel" class="hidden space-y-3 border border-gray-200 rounded-xl p-4 bg-gray-50">
+      <p class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Model selection</p>
+
+      {% if image_models | length > 1 %}
+      <div>
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_image }}</label>
+        <select name="image_model"
+                class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
+                       focus:outline-none focus:ring-2 focus:ring-blue-400">
+          {% for m in image_models %}
+          <option value="{{ m }}">{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      {% if image_models_edit | length > 1 %}
+      <div>
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_image_edit }}</label>
+        <select name="image_model_edit"
+                class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
+                       focus:outline-none focus:ring-2 focus:ring-blue-400">
+          {% for m in image_models_edit %}
+          <option value="{{ m }}">{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      {% if video_models_text | length > 1 %}
+      <div>
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_video_text }}</label>
+        <select name="video_model_text"
+                class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
+                       focus:outline-none focus:ring-2 focus:ring-blue-400">
+          {% for m in video_models_text %}
+          <option value="{{ m }}">{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      {% if video_models_image | length > 1 %}
+      <div>
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_video_image }}</label>
+        <select name="video_model_image"
+                class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
+                       focus:outline-none focus:ring-2 focus:ring-blue-400">
+          {% for m in video_models_image %}
+          <option value="{{ m }}">{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+    </div>
 
     <!-- Output type buttons -->
     <div class="flex gap-4 pt-2 flex-wrap">
@@ -95,5 +162,19 @@
   <div id="result-area"></div>
 
 </div>
+
+<script>
+  function toggleAdvanced() {
+    var panel = document.getElementById('adv-panel');
+    var btn   = document.getElementById('adv-toggle');
+    var isNowHidden = panel.classList.toggle('hidden');
+    localStorage.setItem('adv-open', isNowHidden ? '0' : '1');
+    btn.classList.toggle('bg-gray-100', !isNowHidden);
+  }
+  if (localStorage.getItem('adv-open') === '1') {
+    document.getElementById('adv-panel').classList.remove('hidden');
+    document.getElementById('adv-toggle').classList.add('bg-gray-100');
+  }
+</script>
 
 {% endblock %}
