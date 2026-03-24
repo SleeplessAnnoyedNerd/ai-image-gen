@@ -64,3 +64,10 @@ def test_config_missing_required_var(monkeypatch):
     monkeypatch.delenv("IMAGE_API_KEY")
     with pytest.raises(EnvironmentError, match="IMAGE_API_KEY"):
         Config.from_env()
+
+
+def test_config_missing_required_var_whitespace(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("IMAGE_API_KEY", "   ")
+    with pytest.raises(EnvironmentError, match="IMAGE_API_KEY"):
+        Config.from_env()
