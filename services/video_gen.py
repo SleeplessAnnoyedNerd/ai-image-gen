@@ -188,7 +188,7 @@ def _start_dashscope(
         )
 
     active_model = model_image if image_bytes is not None else model_text
-    url = cfg.video_api_url  # full endpoint URL, no path appending
+    url = cfg.video_api_url.rstrip("/")  # strip trailing slash to avoid double //
 
     payload: dict = {
         "model": active_model,

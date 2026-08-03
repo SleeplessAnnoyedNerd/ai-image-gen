@@ -149,7 +149,7 @@ def _generate_dashscope(
         )
 
     active_model = model_edit if image_bytes is not None else model
-    url = cfg.image_api_url  # full endpoint URL, no path appending
+    url = cfg.image_api_url.rstrip("/")  # strip trailing slash to avoid double //
 
     content = [{"type": "text", "text": prompt}]
     if image_bytes is not None:
