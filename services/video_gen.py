@@ -1,5 +1,6 @@
 import base64
 import requests
+from urllib.parse import urlparse
 from loguru import logger
 from config import Config
 
@@ -16,6 +17,8 @@ def start_video_job(
     model_text = model_text or cfg.video_model_text[0]
     if cfg.video_backend == "azure":
         return _start_azure(cfg, prompt, image_bytes, model_image, model_text)
+    if cfg.video_backend == "dashscope":
+        return _start_dashscope(cfg, prompt, image_bytes, model_image, model_text)
     return _start_fal(cfg, prompt, image_bytes, model_image, model_text)
 
 
@@ -26,6 +29,8 @@ def poll_video_job(cfg: Config, submit: dict) -> dict:
     """
     if cfg.video_backend == "azure":
         return _poll_azure(cfg, submit)
+    if cfg.video_backend == "dashscope":
+        return _poll_dashscope(cfg, submit)
     return _poll_fal(cfg, submit)
 
 
@@ -164,3 +169,91 @@ def _poll_azure(cfg: Config, submit: dict) -> dict:
         return {"status": "error", "message": "Azure video generation failed"}
     else:
         return {"status": "pending", "queue_position": None}
+
+
+# ------------------------------------------------------------------ #
+# DashScope (Alibaba Cloud) backend                                    #
+# ------------------------------------------------------------------ #
+
+def _start_dashscope(
+    cfg: Config,
+    prompt: str,
+    image_bytes: bytes | None,
+    model_image: str,
+    model_text: str,
+) -> dict:
+    if not cfg.video_api_url or not cfg.video_api_key:
+        raise ValueError(
+            "DashScope backend requires VIDEO_API_URL and VIDEO_API_KEY"
+        )
+
+    active_model = model_image if image_bytes is not None else model_text
+    url = cfg.video_api_url  # full endpoint URL, no path appending
+
+    payload: dict = {
+        "model": active_model,
+        "input": {"prompt": prompt},
+        "parameters": {
+            "resolution": "720P",
+            "duration": 5,
+            "watermark": False,
+        },
+    }
+
+    if image_bytes is not None:
+        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
+        b64 = base64.b64encode(image_bytes).decode()
+        payload["input"]["media"] = [
+            {"type": "reference_image", "url": f"data:{mime};base64,{b64}"}
+        ]
+
+    headers = {
+        "Authorization": f"Bearer {cfg.video_api_key}",
+        "Content-Type": "application/json",
+        "X-DashScope-Async": "enable",
+    }
+
+    logger.info(
+        "Submitting DashScope video job | model={} prompt={!r} has_image={}",
+        active_model, prompt, image_bytes is not None,
+    )
+    resp = requests.post(url, json=payload, headers=headers)
+    resp.raise_for_status()
+
+    data = resp.json()
+    task_id = data["output"]["task_id"]
+    logger.info("DashScope video job submitted | task_id={}", task_id)
+    return {"task_id": task_id}
+
+
+def _poll_dashscope(cfg: Config, submit: dict) -> dict:
+    task_id = submit["task_id"]
+    # Poll URL is at a different path than submit: {hostname}/api/v1/tasks/{task_id}
+    parsed = urlparse(cfg.video_api_url)
+    url = f"{parsed.scheme}://{parsed.netloc}/api/v1/tasks/{task_id}"
+    headers = {"Authorization": f"Bearer {cfg.video_api_key}"}
+
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+
+    data = resp.json()
+    status = data.get("output", {}).get("task_status", "UNKNOWN")
+    logger.debug("DashScope video poll | task_id={} status={}", task_id, status)
+
+    if status == "SUCCEEDED":
+        video_url = data["output"].get("video_url")
+        if not video_url:
+            return {"status": "error", "message": "SUCCEEDED but no video_url in response"}
+        logger.info("DashScope video job complete | task_id={} url={}", task_id, video_url)
+        video_resp = requests.get(video_url)
+        video_resp.raise_for_status()
+        return {"status": "done", "video_data": video_resp.content}
+    elif status in ("PENDING", "RUNNING"):
+        return {"status": "pending", "queue_position": None}
+    elif status == "FAILED":
+        message = data.get("output", {}).get("message", "DashScope video generation failed")
+        logger.error("DashScope video job failed | task_id={}", task_id)
+        return {"status": "error", "message": message}
+    else:
+        # CANCELED, UNKNOWN, or any other status
+        return {"status": "error", "message": f"DashScope video task status: {status}"}
