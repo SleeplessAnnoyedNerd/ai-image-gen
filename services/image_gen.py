@@ -19,6 +19,8 @@ def generate_image(
         return _generate_fal(cfg, prompt, image_bytes, model, model_edit)
     if cfg.image_backend == "azure":
         return _generate_azure(cfg, prompt, image_bytes, model, model_edit)
+    if cfg.image_backend == "dashscope":
+        return _generate_dashscope(cfg, prompt, image_bytes, model, model_edit)
     return _generate_openai(cfg, prompt, image_bytes, model, model_edit)
 
 
@@ -131,4 +133,74 @@ def _generate_fal(
     img_resp.raise_for_status()
 
     logger.info("Image generation complete | size={} bytes", len(img_resp.content))
+    return img_resp.content
+
+
+def _generate_dashscope(
+    cfg: Config,
+    prompt: str,
+    image_bytes: bytes | None,
+    model: str,
+    model_edit: str,
+) -> bytes:
+    if not cfg.image_api_url or not cfg.image_api_key:
+        raise ValueError(
+            "DashScope backend requires IMAGE_API_URL and IMAGE_API_KEY"
+        )
+
+    active_model = model_edit if image_bytes is not None else model
+    url = cfg.image_api_url  # full endpoint URL, no path appending
+
+    content = [{"type": "text", "text": prompt}]
+    if image_bytes is not None:
+        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
+        b64 = base64.b64encode(image_bytes).decode()
+        content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+
+    payload = {
+        "model": active_model,
+        "input": {
+            "messages": [{
+                "role": "user",
+                "content": content,
+            }]
+        },
+        "parameters": {
+            "size": "1K",
+            "n": 1,
+        },
+    }
+
+    headers = {
+        "Authorization": f"Bearer {cfg.image_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    logger.info(
+        "Generating image (dashscope) | model={} prompt={!r} has_image={}",
+        active_model, prompt, image_bytes is not None,
+    )
+    resp = _requests.post(url, json=payload, headers=headers)
+    resp.raise_for_status()
+
+    data = resp.json()
+    choices = data.get("output", {}).get("choices", [])
+    if not choices:
+        raise RuntimeError(f"DashScope returned no choices: {data}")
+
+    content_list = choices[0].get("message", {}).get("content", [])
+    image_url = None
+    for item in content_list:
+        if item.get("type") == "image":
+            image_url = item.get("image")
+            break
+
+    if not image_url:
+        raise RuntimeError(f"DashScope returned no image in response: {data}")
+
+    logger.info("Fetching generated image from {}", image_url)
+    img_resp = _requests.get(image_url)
+    img_resp.raise_for_status()
+
+    logger.info("DashScope image generation complete | size={} bytes", len(img_resp.content))
     return img_resp.content

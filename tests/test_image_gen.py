@@ -1,4 +1,5 @@
 import base64
+import pytest
 from unittest.mock import MagicMock, patch
 from services.image_gen import generate_image
 
@@ -67,3 +68,109 @@ def test_image_to_image_uses_explicit_model_edit(cfg):
         call_kwargs = instance.images.edit.call_args.kwargs
         assert call_kwargs["model"] == "edit/model"
         assert result == FAKE_PNG
+
+
+# --- DashScope backend tests ---
+
+from config import Config
+
+
+def _dashscope_cfg():
+    """Helper to create a Config with dashscope backend."""
+    return Config(
+        image_api_url="https://ws-c2xbh4slyhwu4ifn.ap-southeast-1.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+        image_api_key="sk-test-key",
+        image_model=["wan2.7-image"], image_model_edit=["wan2.7-image-pro"],
+        image_backend="dashscope", image_api_version="",
+        video_backend="fal", video_api_url="", video_api_key="",
+        video_api_version="", video_azure_path="",
+        video_model_image=[""], video_model_text=[""],
+        secret_key="test", sd_api_url="", sd_model="",
+    )
+
+
+def test_dashscope_text_to_image():
+    """DashScope backend: text-only prompt generates image."""
+    cfg = _dashscope_cfg()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "output": {
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {
+                    "content": [
+                        {"type": "image", "image": "https://cdn.example.com/img.png"}
+                    ]
+                }
+            }]
+        },
+        "request_id": "req-123",
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    mock_img_resp = MagicMock()
+    mock_img_resp.content = FAKE_PNG
+    mock_img_resp.raise_for_status = MagicMock()
+
+    with patch("services.image_gen._requests.post", return_value=mock_response), \
+         patch("services.image_gen._requests.get", return_value=mock_img_resp):
+        result = generate_image(cfg, prompt="a cat wearing a hat")
+
+    assert result == FAKE_PNG
+
+
+def test_dashscope_image_to_image():
+    """DashScope backend: prompt + reference image generates edited image."""
+    cfg = _dashscope_cfg()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "output": {
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {
+                    "content": [
+                        {"type": "image", "image": "https://cdn.example.com/img.png"}
+                    ]
+                }
+            }]
+        },
+        "request_id": "req-456",
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    mock_img_resp = MagicMock()
+    mock_img_resp.content = FAKE_PNG
+    mock_img_resp.raise_for_status = MagicMock()
+
+    with patch("services.image_gen._requests.post", return_value=mock_response) as mock_post, \
+         patch("services.image_gen._requests.get", return_value=mock_img_resp):
+        result = generate_image(cfg, prompt="make it blue", image_bytes=FAKE_PNG)
+
+    assert result == FAKE_PNG
+
+    # Verify the request included the image in the messages content
+    payload = mock_post.call_args.kwargs["json"]
+    content = payload["input"]["messages"][0]["content"]
+    assert len(content) == 2
+    assert content[0] == {"type": "text", "text": "make it blue"}
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_dashscope_missing_config_raises():
+    """DashScope backend: raises ValueError when api_url is empty."""
+    cfg = Config(
+        image_api_url="", image_api_key="",
+        image_model=["wan2.7-image"], image_model_edit=["wan2.7-image-pro"],
+        image_backend="dashscope", image_api_version="",
+        video_backend="fal", video_api_url="", video_api_key="",
+        video_api_version="", video_azure_path="",
+        video_model_image=[""], video_model_text=[""],
+        secret_key="test", sd_api_url="", sd_model="",
+    )
+    with pytest.raises(ValueError, match="IMAGE_API_URL"):
+        generate_image(cfg, prompt="a cat")
