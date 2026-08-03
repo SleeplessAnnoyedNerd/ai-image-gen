@@ -156,9 +156,8 @@ def test_dashscope_image_to_image():
     payload = mock_post.call_args.kwargs["json"]
     content = payload["input"]["messages"][0]["content"]
     assert len(content) == 2
-    assert content[0] == {"type": "text", "text": "make it blue"}
-    assert content[1]["type"] == "image_url"
-    assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert content[0] == {"text": "make it blue"}
+    assert content[1]["image"].startswith("data:image/png;base64,")
 
 
 def test_dashscope_missing_config_raises():

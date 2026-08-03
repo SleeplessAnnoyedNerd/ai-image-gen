@@ -151,11 +151,11 @@ def _generate_dashscope(
     active_model = model_edit if image_bytes is not None else model
     url = cfg.image_api_url.rstrip("/")  # strip trailing slash to avoid double //
 
-    content = [{"type": "text", "text": prompt}]
+    content = [{"text": prompt}]
     if image_bytes is not None:
         mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
         b64 = base64.b64encode(image_bytes).decode()
-        content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+        content.append({"image": f"data:{mime};base64,{b64}"})
 
     payload = {
         "model": active_model,
