@@ -226,7 +226,7 @@ def _run_video_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | N
             cfg, prompt, image_bytes,
             model_image=model_image, model_text=model_text,
         )
-        for _ in range(120):
+        for _ in range(300):
             time.sleep(2)
             result = video_gen.poll_video_job(cfg, submit)
             qp = result.get("queue_position")
@@ -243,7 +243,7 @@ def _run_video_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | N
                 return
             if result["status"] == "error":
                 raise RuntimeError(result.get("message", "Video generation failed"))
-        raise TimeoutError("Video generation timed out after 4 minutes")
+        raise TimeoutError("Video generation timed out after 10 minutes")
     except Exception as exc:
         logger.exception("Video job failed | job_id={}", job_id)
         job_store.update_job(job_id, {"status": "error", "error": str(exc)})
