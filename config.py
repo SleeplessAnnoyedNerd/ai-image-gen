@@ -20,9 +20,9 @@ class Config:
     image_api_key: str
     image_model: list[str]        # text-to-image models; first is default
     image_model_edit: list[str]   # image+prompt-to-image models; first is default
-    image_backend: str            # "openai", "azure", or "fal"
+    image_backend: str            # "openai", "azure", "fal", or "dashscope"
     image_api_version: str        # Azure API version (only used for azure backend)
-    video_backend: str            # "fal" or "azure"
+    video_backend: str            # "fal", "azure", or "dashscope"
     video_api_url: str
     video_api_key: str
     video_api_version: str        # Azure API version (only used for azure backend)
