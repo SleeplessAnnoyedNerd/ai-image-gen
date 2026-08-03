@@ -75,3 +75,39 @@ def test_download_image(client):
 def test_download_missing_job(client):
     resp = client.get("/image/nonexistent-id")
     assert resp.status_code == 404
+
+
+def test_generate_dashscope_image(client, cfg):
+    """Full pipeline: POST /generate with dashscope image backend."""
+    cfg.image_backend = "dashscope"
+    cfg.image_api_url = "https://ws.example.com/api/v1/services/aigc/multimodal-generation/generation"
+    cfg.image_api_key = "sk-test"
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "output": {
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {
+                    "content": [{"type": "image", "image": "https://cdn.example.com/img.png"}]
+                }
+            }]
+        },
+        "request_id": "req-1",
+    }
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_img = MagicMock()
+    mock_img.content = b"\x89PNG\r\n\x1a\nfake-png"
+    mock_img.raise_for_status = MagicMock()
+
+    with patch("services.image_gen._requests.post", return_value=mock_resp), \
+         patch("services.image_gen._requests.get", return_value=mock_img):
+        resp = client.post("/generate", data={
+            "output_type": "image",
+            "prompt": "a cat wearing a hat",
+        })
+
+    assert resp.status_code == 200
+    assert b"Generating" in resp.data
