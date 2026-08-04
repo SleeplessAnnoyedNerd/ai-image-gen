@@ -202,24 +202,17 @@ def _start_dashscope(
         b64 = base64.b64encode(image_bytes).decode()
         data_uri = f"data:{mime};base64,{b64}"
 
-    # Try media[] format first (wan2.7, happyhorse), fall back to img_url (wan2.6)
-    payload = _build_dashscope_video_payload(active_model, prompt, data_uri, use_media=True)
+    # wan2.6 models use input.img_url, newer models (wan2.7, happyhorse) use input.media[]
+    use_media = "wan2.6" not in active_model
+    payload = _build_dashscope_video_payload(active_model, prompt, data_uri, use_media=use_media)
 
     logger.info(
-        "Submitting DashScope video job | model={} prompt={!r} has_image={}",
-        active_model, prompt, image_bytes is not None,
+        "Submitting DashScope video job | model={} prompt={!r} has_image={} format={}",
+        active_model, prompt, image_bytes is not None, "media" if use_media else "img_url",
     )
     resp = requests.post(url, json=payload, headers=headers)
     if not resp.ok:
         logger.error("DashScope video API error | status={} body={}", resp.status_code, resp.text)
-
-    # If 400 and mentions img_url, retry with img_url format
-    if resp.status_code == 400 and image_bytes is not None and "img_url" in resp.text:
-        logger.info("Retrying with img_url format (model may not support media[])")
-        payload = _build_dashscope_video_payload(active_model, prompt, data_uri, use_media=False)
-        resp = requests.post(url, json=payload, headers=headers)
-        if not resp.ok:
-            logger.error("DashScope video API error (img_url retry) | status={} body={}", resp.status_code, resp.text)
 
     resp.raise_for_status()
 
