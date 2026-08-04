@@ -183,7 +183,7 @@ def _generate_dashscope(
     resp = _requests.post(url, json=payload, headers=headers)
     if not resp.ok:
         logger.error("DashScope image API error | status={} body={}", resp.status_code, resp.text)
-    resp.raise_for_status()
+        _raise_dashscope_error(resp)
 
     data = resp.json()
     choices = data.get("output", {}).get("choices", [])
@@ -206,3 +206,13 @@ def _generate_dashscope(
 
     logger.info("DashScope image generation complete | size={} bytes", len(img_resp.content))
     return img_resp.content
+
+
+def _raise_dashscope_error(resp):
+    """Parse DashScope error response and raise with the message field."""
+    try:
+        body = resp.json()
+        message = body.get("message", resp.text)
+    except Exception:
+        message = resp.text
+    raise RuntimeError(f"DashScope error {resp.status_code}: {message}")

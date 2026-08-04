@@ -213,8 +213,7 @@ def _start_dashscope(
     resp = requests.post(url, json=payload, headers=headers)
     if not resp.ok:
         logger.error("DashScope video API error | status={} body={}", resp.status_code, resp.text)
-
-    resp.raise_for_status()
+        _raise_dashscope_error(resp)
 
     data = resp.json()
     task_id = data["output"]["task_id"]
@@ -250,6 +249,16 @@ def _build_dashscope_video_payload(
     return payload
 
 
+def _raise_dashscope_error(resp):
+    """Parse DashScope error response and raise with the message field."""
+    try:
+        body = resp.json()
+        message = body.get("message", resp.text)
+    except Exception:
+        message = resp.text
+    raise RuntimeError(f"DashScope error {resp.status_code}: {message}")
+
+
 def _poll_dashscope(cfg: Config, submit: dict) -> dict:
     task_id = submit["task_id"]
     # Poll URL is at a different path than submit: {hostname}/api/v1/tasks/{task_id}
@@ -260,7 +269,7 @@ def _poll_dashscope(cfg: Config, submit: dict) -> dict:
     resp = requests.get(url, headers=headers)
     if not resp.ok:
         logger.error("DashScope video poll error | status={} body={}", resp.status_code, resp.text)
-    resp.raise_for_status()
+        _raise_dashscope_error(resp)
 
     data = resp.json()
     status = data.get("output", {}).get("task_status", "UNKNOWN")
