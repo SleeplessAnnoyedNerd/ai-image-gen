@@ -181,6 +181,8 @@ def _generate_dashscope(
         active_model, prompt, image_bytes is not None,
     )
     resp = _requests.post(url, json=payload, headers=headers)
+    if not resp.ok:
+        logger.error("DashScope image API error | status={} body={}", resp.status_code, resp.text)
     resp.raise_for_status()
 
     data = resp.json()
