@@ -190,28 +190,20 @@ def _start_dashscope(
     active_model = model_image if image_bytes is not None else model_text
     url = cfg.video_api_url.rstrip("/")  # strip trailing slash to avoid double //
 
-    payload: dict = {
-        "model": active_model,
-        "input": {"prompt": prompt},
-        "parameters": {
-            "resolution": "720P",
-            "duration": 5,
-            "watermark": False,
-        },
-    }
-
-    if image_bytes is not None:
-        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
-        b64 = base64.b64encode(image_bytes).decode()
-        payload["input"]["media"] = [
-            {"type": "reference_image", "url": f"data:{mime};base64,{b64}"}
-        ]
-
     headers = {
         "Authorization": f"Bearer {cfg.video_api_key}",
         "Content-Type": "application/json",
         "X-DashScope-Async": "enable",
     }
+
+    data_uri = None
+    if image_bytes is not None:
+        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
+        b64 = base64.b64encode(image_bytes).decode()
+        data_uri = f"data:{mime};base64,{b64}"
+
+    # Try media[] format first (wan2.7, happyhorse), fall back to img_url (wan2.6)
+    payload = _build_dashscope_video_payload(active_model, prompt, data_uri, use_media=True)
 
     logger.info(
         "Submitting DashScope video job | model={} prompt={!r} has_image={}",
@@ -220,12 +212,49 @@ def _start_dashscope(
     resp = requests.post(url, json=payload, headers=headers)
     if not resp.ok:
         logger.error("DashScope video API error | status={} body={}", resp.status_code, resp.text)
+
+    # If 400 and mentions img_url, retry with img_url format
+    if resp.status_code == 400 and image_bytes is not None and "img_url" in resp.text:
+        logger.info("Retrying with img_url format (model may not support media[])")
+        payload = _build_dashscope_video_payload(active_model, prompt, data_uri, use_media=False)
+        resp = requests.post(url, json=payload, headers=headers)
+        if not resp.ok:
+            logger.error("DashScope video API error (img_url retry) | status={} body={}", resp.status_code, resp.text)
+
     resp.raise_for_status()
 
     data = resp.json()
     task_id = data["output"]["task_id"]
     logger.info("DashScope video job submitted | task_id={}", task_id)
     return {"task_id": task_id}
+
+
+def _build_dashscope_video_payload(
+    model: str,
+    prompt: str,
+    data_uri: str | None,
+    use_media: bool,
+) -> dict:
+    """Build video generation payload. use_media=True for media[] format, False for img_url format."""
+    payload: dict = {
+        "model": model,
+        "input": {"prompt": prompt},
+        "parameters": {
+            "resolution": "720P",
+            "duration": 5,
+            "watermark": False,
+        },
+    }
+
+    if data_uri is not None:
+        if use_media:
+            payload["input"]["media"] = [
+                {"type": "reference_image", "url": data_uri}
+            ]
+        else:
+            payload["input"]["img_url"] = data_uri
+
+    return payload
 
 
 def _poll_dashscope(cfg: Config, submit: dict) -> dict:
