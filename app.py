@@ -127,7 +127,6 @@ def create_app(cfg: Config | None = None) -> Flask:
             else:
                 return render_template("partials/result_video.html",
                                        job_id=job_id,
-                                       video_url=job.get("video_url"),
                                        t=strings)
         return render_template("partials/error.html",
                                message=job.get("error", strings["error_generic"]),
@@ -151,16 +150,10 @@ def create_app(cfg: Config | None = None) -> Flask:
 
     @app.get("/video/<job_id>")
     def serve_video(job_id):
-        import requests as req
         job = job_store.get_job(job_id)
         if not job or job.get("status") != "done" or job.get("output_type") != "video":
             abort(404)
-        if job.get("video_data"):
-            data = job["video_data"]
-        else:
-            r = req.get(job["video_url"], stream=True)
-            r.raise_for_status()
-            data = r.content
+        data = job["video_data"]
         return send_file(io.BytesIO(data), mimetype="video/mp4")
 
     @app.get("/download/<job_id>")
@@ -176,15 +169,8 @@ def create_app(cfg: Config | None = None) -> Flask:
                 download_name=f"{job_id}.png",
             )
         else:
-            if job.get("video_data"):
-                data = job["video_data"]
-            else:
-                import requests as req
-                r = req.get(job["video_url"], stream=True)
-                r.raise_for_status()
-                data = r.content
             return send_file(
-                io.BytesIO(data),
+                io.BytesIO(job["video_data"]),
                 mimetype="video/mp4",
                 as_attachment=True,
                 download_name=f"{job_id}.mp4",
