@@ -36,6 +36,8 @@ def _require(section: str, key: str):
         raise EnvironmentError(f"Required config [{section}].{key} is empty")
     if isinstance(val, str) and not val.strip():
         raise EnvironmentError(f"Required config [{section}].{key} is empty")
+    if isinstance(val, list) and not val:
+        raise EnvironmentError(f"Required config [{section}].{key} is empty")
     return val
 
 

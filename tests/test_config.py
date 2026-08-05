@@ -1,6 +1,4 @@
-import os
 import pytest
-import tomllib
 from config import Config, _parse_list, _load_toml, _merge, _require, _get
 
 
@@ -100,6 +98,13 @@ def test_require_empty(monkeypatch):
         _require("section", "key")
 
 
+def test_require_empty_list(monkeypatch):
+    import config as cfg_module
+    monkeypatch.setattr(cfg_module, "_settings", {"section": {"key": []}})
+    with pytest.raises(EnvironmentError, match="section.*key"):
+        _require("section", "key")
+
+
 def test_require_none(monkeypatch):
     import config as cfg_module
     monkeypatch.setattr(cfg_module, "_settings", {"section": {"key": None}})
@@ -136,7 +141,7 @@ def _patch_settings(monkeypatch, settings_data, secrets_data=None):
     monkeypatch.setattr(cfg_module, "_settings", merged)
 
 
-def test_from_settings_single_models(tmp_path, monkeypatch):
+def test_from_settings_single_models(monkeypatch):
     _patch_settings(monkeypatch, {
         "flask": {"secret_key": "s3cr3t", "port": 5005},
         "image": {
@@ -161,7 +166,7 @@ def test_from_settings_single_models(tmp_path, monkeypatch):
     assert cfg.secret_key == "s3cr3t"
 
 
-def test_from_settings_multi_models(tmp_path, monkeypatch):
+def test_from_settings_multi_models(monkeypatch):
     _patch_settings(monkeypatch, {
         "flask": {"secret_key": "s3cr3t", "port": 5005},
         "image": {
@@ -204,7 +209,7 @@ def test_from_settings_missing_required(monkeypatch):
         Config.from_settings()
 
 
-def test_from_settings_defaults(tmp_path, monkeypatch):
+def test_from_settings_defaults(monkeypatch):
     """Optional fields use defaults when not in TOML."""
     _patch_settings(monkeypatch, {
         "flask": {"secret_key": "s3cr3t", "port": 5005},
