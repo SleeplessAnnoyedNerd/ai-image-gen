@@ -24,7 +24,20 @@ Example: `.cache/20260805/20260805-151800-0a545699-e793-47d7-a911-8c849bfc447a.p
 | Image (SD) | InvokeAI | `.png` | Raw image bytes |
 | Video | azure, dashscope, fal | `.mp4` | Raw video bytes |
 
-All backends cache actual bytes. For fal videos (which return only a URL), we fetch the bytes at job completion time — same fetch that `serve_video` already does on demand.
+All backends return raw bytes. All backends are symmetric — `poll_video_job` always returns `video_data`.
+
+## Changes to `services/video_gen.py`
+
+`_poll_fal` currently returns `{"status": "done", "video_url": video_url}`. Change to fetch bytes (like azure/dashscope already do):
+
+```python
+# In _poll_fal, when status == "COMPLETED":
+video_resp = requests.get(video_url)
+video_resp.raise_for_status()
+return {"status": "done", "video_data": video_resp.content}
+```
+
+This makes all video backends symmetric: `poll_video_job` always returns `video_data` on success. Eliminates the `video_url` code path entirely from `_run_video_job` and `serve_video`.
 
 ## Infrastructure
 
@@ -69,26 +82,24 @@ Cache write goes **before** `job_store.update_job(status: "done")`, wrapped in i
 
 2. `_run_sd_job` — same pattern: cache then update
 
-3. `_run_video_job` — in the success branch:
+3. `_run_video_job` — in the success branch (all backends return `video_data`):
    ```python
-   if "video_data" in result:
-       update["video_data"] = result["video_data"]
+   if result["status"] == "done":
+       update = {"status": "done", "output_type": "video", "video_data": result["video_data"]}
        try:
            _cache_artifact(job_id, result["video_data"], "mp4")
        except Exception:
            logger.warning("Failed to cache artifact | job_id={}", job_id, exc_info=True)
-   else:
-       # fal: fetch bytes for caching
-       video_data = requests.get(result["video_url"]).content
-       update["video_data"] = video_data
-       try:
-           _cache_artifact(job_id, video_data, "mp4")
-       except Exception:
-           logger.warning("Failed to cache artifact | job_id={}", job_id, exc_info=True)
-   job_store.update_job(job_id, update)
+       job_store.update_job(job_id, update)
+       return
    ```
 
-   Note: fal branch now stores `video_data` in the job too, making subsequent `serve_video` calls faster (no re-fetch).
+### Simplifications from symmetric backends
+
+With `_poll_fal` returning `video_data` like the others:
+- `_run_video_job` drops the `video_url` / `video_data` if-else entirely
+- `serve_video` in `app.py` drops the URL-fetch fallback (lines 160-163) — `video_data` is always present
+- `download` in `app.py` drops the URL-fetch fallback (lines 179-185) — same reason
 
 ### Error handling
 
@@ -99,6 +110,7 @@ Cache write failure logs a warning but **never fails the job**. The in-memory ar
 - Cache cleanup / max size / TTL — add when disk pressure is real
 - Cache index or listing endpoint — add when browsing is needed
 - Deduplication — each job has a unique UUID, no collision possible
+- MIME type detection — all current backends return PNG/MP4; add content-type sniffing when a backend breaks this assumption
 
 ## Testing
 
