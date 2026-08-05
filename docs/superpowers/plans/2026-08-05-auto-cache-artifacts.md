@@ -109,18 +109,56 @@ git commit -m "refactor: _poll_fal returns video_data (bytes) like other backend
 
 ---
 
-### Task 3: Simplify `serve_video`, `download`, and `_run_video_job`
+### Task 3: Remove `video_url` code path from routes and template
 
 **Files:**
+- Modify: `app.py:124-131` (status route, video branch)
 - Modify: `app.py:152-164` (`serve_video`)
 - Modify: `app.py:166-191` (`download`)
-- Modify: `app.py:230-243` (`_run_video_job` success branch)
+- Modify: `templates/partials/result_video.html:3` (video src)
+
+Note: `_run_video_job` changes are handled in Task 5 (avoids redundant editing).
 
 **Interfaces:**
 - Consumes: `video_data` always present in job dict (from Task 2)
-- Produces: simpler code with no `video_url` fallback
+- Produces: simpler code with no `video_url` fallback, template uses `/video/<job_id>` endpoint
 
-- [ ] **Step 1: Simplify `serve_video`**
+- [ ] **Step 1: Fix status route — remove `video_url` parameter**
+
+In the `status` route (lines 124–131), change the video branch from:
+
+```python
+            else:
+                return render_template("partials/result_video.html",
+                                       job_id=job_id,
+                                       video_url=job.get("video_url"),
+                                       t=strings)
+```
+
+to:
+
+```python
+            else:
+                return render_template("partials/result_video.html",
+                                       job_id=job_id,
+                                       t=strings)
+```
+
+- [ ] **Step 2: Fix `result_video.html` — use `/video/<job_id>` endpoint**
+
+In `templates/partials/result_video.html`, change line 3 from:
+
+```html
+  <video src="{{ video_url }}" controls playsinline webkit-playsinline
+```
+
+to:
+
+```html
+  <video src="/video/{{ job_id }}" controls playsinline webkit-playsinline
+```
+
+- [ ] **Step 3: Simplify `serve_video`**
 
 Replace `serve_video` (lines 152–164) with:
 
@@ -134,7 +172,7 @@ Replace `serve_video` (lines 152–164) with:
         return send_file(io.BytesIO(data), mimetype="video/mp4")
 ```
 
-- [ ] **Step 2: Simplify `download`**
+- [ ] **Step 4: Simplify `download`**
 
 Replace the `download` function (lines 166–191) with:
 
@@ -160,29 +198,16 @@ Replace the `download` function (lines 166–191) with:
             )
 ```
 
-- [ ] **Step 3: Simplify `_run_video_job` success branch**
-
-Replace the success handling in `_run_video_job` (lines 236–243):
-
-```python
-            if result["status"] == "done":
-                job_store.update_job(job_id, {
-                    "status": "done", "output_type": "video",
-                    "video_data": result["video_data"],
-                })
-                return
-```
-
-- [ ] **Step 4: Run full test suite**
+- [ ] **Step 5: Run full test suite**
 
 Run: `pytest tests/ -v`
 Expected: All tests pass
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add app.py
-git commit -m "refactor: drop video_url fallback (all backends return video_data)"
+git add app.py templates/partials/result_video.html
+git commit -m "refactor: drop video_url fallback, use /video/<job_id> endpoint"
 ```
 
 ---
