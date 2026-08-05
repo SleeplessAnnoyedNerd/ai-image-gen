@@ -5,7 +5,8 @@ from datetime import datetime
 from loguru import logger
 import requests as _requests
 
-_port = os.environ.get("PORT", "5000")
+from config import _settings
+_port = str(_settings.get("flask", {}).get("port", 5000))
 logger.add(
     f"logs/app-{_port}.log",
     rotation="10 MB", retention=5, level="DEBUG",
@@ -39,7 +40,7 @@ def create_app(cfg: Config | None = None) -> Flask:
     app = Flask(__name__)
 
     if cfg is None:
-        cfg = Config.from_env()
+        cfg = Config.from_settings()
     app.secret_key = cfg.secret_key
 
     def t():
@@ -264,7 +265,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=None)
     args = parser.parse_args()
-    port = args.port if args.port is not None else int(os.environ.get("PORT", 5000))
+    port = args.port if args.port is not None else int(_settings.get("flask", {}).get("port", 5000))
     if str(port) != _port:
         # CLI port differs from env — re-add log handler with correct port name
         logger.add(
