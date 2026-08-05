@@ -63,9 +63,14 @@ def test_poll_done(cfg):
     submit = {"status_url": "http://s", "response_url": "http://r"}
     status_resp = _mock_status("COMPLETED")
     result_resp = _mock_result("https://cdn.fal.ai/video.mp4")
-    with patch("services.video_gen.requests.get", side_effect=[status_resp, result_resp]):
+
+    video_resp = MagicMock()
+    video_resp.content = b"fake-mp4-bytes"
+    video_resp.raise_for_status = MagicMock()
+
+    with patch("services.video_gen.requests.get", side_effect=[status_resp, result_resp, video_resp]):
         result = poll_video_job(cfg, submit)
-    assert result == {"status": "done", "video_url": "https://cdn.fal.ai/video.mp4"}
+    assert result == {"status": "done", "video_data": b"fake-mp4-bytes"}
 
 
 def test_poll_failed(cfg):

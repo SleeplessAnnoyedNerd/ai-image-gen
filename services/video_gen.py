@@ -25,7 +25,7 @@ def start_video_job(
 def poll_video_job(cfg: Config, submit: dict) -> dict:
     """Poll a previously submitted job.
     Keys: status ("pending"|"done"|"error"), queue_position (int|None),
-          video_url (str, fal) OR video_data (bytes, azure), message (str on error).
+          video_data (bytes), message (str on error).
     """
     if cfg.video_backend == "azure":
         return _poll_azure(cfg, submit)
@@ -84,7 +84,10 @@ def _poll_fal(cfg: Config, submit: dict) -> dict:
         result.raise_for_status()
         video_url = result.json()["video"]["url"]
         logger.info("fal video job complete | url={}", video_url)
-        return {"status": "done", "video_url": video_url}
+        video_resp = requests.get(video_url)
+        video_resp.raise_for_status()
+        logger.info("fal video fetched | size={} bytes", len(video_resp.content))
+        return {"status": "done", "video_data": video_resp.content}
     elif status == "FAILED":
         logger.error("fal video job failed | status_url={}", status_url)
         return {"status": "error", "message": "Video generation failed"}
