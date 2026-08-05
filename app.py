@@ -201,6 +201,10 @@ def _run_image_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | N
                    model: str, model_edit: str):
     try:
         data = image_gen.generate_image(cfg, prompt, image_bytes, model=model, model_edit=model_edit)
+        try:
+            _cache_artifact(job_id, data, "png")
+        except Exception:
+            logger.warning("Failed to cache artifact | job_id={}", job_id, exc_info=True)
         job_store.update_job(job_id, {"status": "done", "output_type": "image", "data": data})
         logger.info("Image job done | job_id={}", job_id)
     except Exception as exc:
@@ -211,6 +215,10 @@ def _run_image_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | N
 def _run_sd_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | None):
     try:
         data = sd_gen.generate_image_sd(cfg, prompt, image_bytes)
+        try:
+            _cache_artifact(job_id, data, "png")
+        except Exception:
+            logger.warning("Failed to cache artifact | job_id={}", job_id, exc_info=True)
         job_store.update_job(job_id, {"status": "done", "output_type": "image", "data": data})
         logger.info("SD job done | job_id={}", job_id)
     except Exception as exc:
@@ -234,12 +242,14 @@ def _run_video_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | N
                 "progress": "in_progress" if qp is None else str(qp)
             })
             if result["status"] == "done":
-                update = {"status": "done", "output_type": "video"}
-                if "video_data" in result:
-                    update["video_data"] = result["video_data"]
-                else:
-                    update["video_url"] = result["video_url"]
-                job_store.update_job(job_id, update)
+                try:
+                    _cache_artifact(job_id, result["video_data"], "mp4")
+                except Exception:
+                    logger.warning("Failed to cache artifact | job_id={}", job_id, exc_info=True)
+                job_store.update_job(job_id, {
+                    "status": "done", "output_type": "video",
+                    "video_data": result["video_data"],
+                })
                 return
             if result["status"] == "error":
                 raise RuntimeError(result.get("message", "Video generation failed"))
