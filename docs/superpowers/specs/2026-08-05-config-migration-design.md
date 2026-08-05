@@ -102,9 +102,11 @@ Documents all backend options (fal, OpenAI, Azure, DashScope) as commented-out T
 import tomllib
 from pathlib import Path
 
+_BASE_DIR = Path(__file__).resolve().parent
+
 
 def _load_toml(path: str) -> dict:
-    p = Path(path)
+    p = _BASE_DIR / path
     if not p.exists():
         return {}
     with open(p, "rb") as f:
@@ -127,22 +129,28 @@ _settings = _merge(_load_toml("settings.toml"), _load_toml(".secrets.toml"))
 ### Helper functions (modified)
 
 ```python
-def _require(section: str, key: str) -> str:
+def _require(section: str, key: str):
+    """Return raw value. Raises EnvironmentError if missing/empty."""
     try:
         val = _settings[section][key]
     except KeyError:
         raise EnvironmentError(f"Required config [{section}].{key} missing")
-    if val is None or not str(val).strip():
+    if val is None:
         raise EnvironmentError(f"Required config [{section}].{key} is empty")
-    return str(val).strip()
+    if isinstance(val, str) and not val.strip():
+        raise EnvironmentError(f"Required config [{section}].{key} is empty")
+    return val
 
 
-def _get(section: str, key: str, default: str = "") -> str:
+def _get(section: str, key: str, default=""):
+    """Return raw value, or default if missing/None."""
     try:
         val = _settings[section][key]
     except KeyError:
         return default
-    return str(val).strip() if val is not None else default
+    if val is None:
+        return default
+    return val
 
 
 def _parse_list(val) -> list[str]:
@@ -197,6 +205,10 @@ config = Config.from_settings()
 ## Edge Cases Handled
 
 - **Missing `.secrets.toml`**: `_load_toml()` returns `{}` — app fails at `_require()` with clear error
-- **Present-but-empty values**: `_require()` checks `val is None` and empty string
+- **Malformed TOML**: `tomllib.TOMLDecodeError` propagates at import time with clear traceback
+- **Empty TOML file**: Valid TOML (returns empty dict), handled by `_load_toml()`
+- **CWD-independent paths**: `_load_toml()` resolves paths relative to `config.py` via `_BASE_DIR`, not CWD
+- **Present-but-empty values**: `_require()` checks `val is None` and empty string (only for `str` type)
+- **TOML lists preserved**: `_require()` returns raw values — lists stay as lists, not `str()`-converted
 - **TOML lists vs comma-separated strings**: `_parse_list()` handles both (TOML lists are native, comma-separated for migration safety)
 - **`KeyError` vs `EnvironmentError`**: `_require()` catches `KeyError` and re-raises as `EnvironmentError` with a clear message

@@ -74,15 +74,17 @@ model = "Juggernaut XL v9"
 
 - [ ] **Step 2: Create `.secrets.toml`**
 
-Copy the actual API key values from the current `.envrc`:
+Copy the actual API key values from the current `.envrc` (grep for `IMAGE_API_KEY` and `VIDEO_API_KEY`):
 
 ```toml
 [image]
-api_key = "<copy IMAGE_API_KEY value from .envrc>"
+api_key = "<paste the exact IMAGE_API_KEY value from .envrc>"
 
 [video]
-api_key = "<copy VIDEO_API_KEY value from .envrc>"
+api_key = "<paste the exact VIDEO_API_KEY value from .envrc>"
 ```
+
+Verify the values match by comparing with: `grep -E 'IMAGE_API_KEY|VIDEO_API_KEY' .envrc`
 
 - [ ] **Step 3: Create `settings.example.toml`**
 
@@ -213,6 +215,22 @@ def test_load_toml_existing_file(tmp_path):
     assert result == {"section": {"key": "value"}}
 
 
+def test_load_toml_malformed_raises(tmp_path):
+    toml_file = tmp_path / "bad.toml"
+    toml_file.write_text("[invalid\ntoml content")
+    import tomllib
+    with pytest.raises(tomllib.TOMLDecodeError):
+        _load_toml(str(toml_file))
+
+
+def test_load_toml_empty_file(tmp_path):
+    """An empty TOML file is valid (returns empty dict)."""
+    toml_file = tmp_path / "empty.toml"
+    toml_file.write_text("")
+    result = _load_toml(str(toml_file))
+    assert result == {}
+
+
 # --- unit tests for _merge ---
 
 def test_merge_disjoint():
@@ -231,10 +249,16 @@ def test_merge_deep():
 
 # --- unit tests for _require / _get (via _settings patching) ---
 
-def test_require_present(monkeypatch):
+def test_require_present_string(monkeypatch):
     import config as cfg_module
     monkeypatch.setattr(cfg_module, "_settings", {"section": {"key": "value"}})
     assert _require("section", "key") == "value"
+
+
+def test_require_present_list(monkeypatch):
+    import config as cfg_module
+    monkeypatch.setattr(cfg_module, "_settings", {"section": {"key": ["a", "b"]}})
+    assert _require("section", "key") == ["a", "b"]
 
 
 def test_require_missing(monkeypatch):
@@ -380,6 +404,53 @@ def test_from_settings_defaults(tmp_path, monkeypatch):
     assert cfg.video_api_version == "2025-04-01-preview"
     assert cfg.sd_api_url == ""
     assert cfg.sd_model == ""
+
+
+# --- Integration test: real TOML files on disk ---
+
+def test_from_settings_real_toml_files(tmp_path, monkeypatch):
+    """Write actual TOML files and verify end-to-end loading."""
+    import config as cfg_module
+
+    settings_file = tmp_path / "settings.toml"
+    settings_file.write_text(
+        '[flask]\n'
+        'secret_key = "test-secret"\n'
+        'port = 5005\n'
+        '\n'
+        '[image]\n'
+        'backend = "fal"\n'
+        'api_url = "https://img.example.com"\n'
+        'model = ["model-a", "model-b"]\n'
+        'model_edit = ["edit-model"]\n'
+        '\n'
+        '[video]\n'
+        'backend = "fal"\n'
+        'api_url = "https://vid.example.com"\n'
+        'model_image = ["vid-img"]\n'
+        'model_text = ["vid-txt"]\n'
+    )
+    secrets_file = tmp_path / ".secrets.toml"
+    secrets_file.write_text(
+        '[image]\n'
+        'api_key = "real-img-key"\n'
+        '\n'
+        '[video]\n'
+        'api_key = "real-vid-key"\n'
+    )
+
+    merged = _merge(
+        _load_toml(str(settings_file)),
+        _load_toml(str(secrets_file)),
+    )
+    monkeypatch.setattr(cfg_module, "_settings", merged)
+
+    cfg = Config.from_settings()
+    assert cfg.image_api_key == "real-img-key"
+    assert cfg.video_api_key == "real-vid-key"
+    assert cfg.image_model == ["model-a", "model-b"]
+    assert cfg.image_backend == "fal"
+    assert cfg.secret_key == "test-secret"
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -396,9 +467,11 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+_BASE_DIR = Path(__file__).resolve().parent
+
 
 def _load_toml(path: str) -> dict:
-    p = Path(path)
+    p = _BASE_DIR / path
     if not p.exists():
         return {}
     with open(p, "rb") as f:
@@ -418,22 +491,28 @@ def _merge(base: dict, override: dict) -> dict:
 _settings = _merge(_load_toml("settings.toml"), _load_toml(".secrets.toml"))
 
 
-def _require(section: str, key: str) -> str:
+def _require(section: str, key: str):
+    """Return raw value from _settings. Raises EnvironmentError if missing/empty."""
     try:
         val = _settings[section][key]
     except KeyError:
         raise EnvironmentError(f"Required config [{section}].{key} missing")
-    if val is None or not str(val).strip():
+    if val is None:
         raise EnvironmentError(f"Required config [{section}].{key} is empty")
-    return str(val).strip()
+    if isinstance(val, str) and not val.strip():
+        raise EnvironmentError(f"Required config [{section}].{key} is empty")
+    return val
 
 
-def _get(section: str, key: str, default: str = "") -> str:
+def _get(section: str, key: str, default=""):
+    """Return raw value from _settings, or default if missing/None."""
     try:
         val = _settings[section][key]
     except KeyError:
         return default
-    return str(val).strip() if val is not None else default
+    if val is None:
+        return default
+    return val
 
 
 def _parse_list(val) -> list[str]:
@@ -465,25 +544,25 @@ class Config:
     @classmethod
     def from_settings(cls) -> "Config":
         return cls(
-            image_api_url = _require("image", "api_url"),
-            image_api_key = _require("image", "api_key"),
+            image_api_url = str(_require("image", "api_url")),
+            image_api_key = str(_require("image", "api_key")),
             image_model = _parse_list(_require("image", "model")),
             image_model_edit = _parse_list(_require("image", "model_edit")),
-            image_backend = _get("image", "backend", "openai"),
-            image_api_version = _get("image", "api_version", "2024-02-01"),
-            video_backend = _get("video", "backend", "fal"),
-            video_api_url = _require("video", "api_url"),
-            video_api_key = _require("video", "api_key"),
-            video_api_version = _get("video", "api_version", "2025-04-01-preview"),
-            video_azure_path = _get(
+            image_backend = str(_get("image", "backend", "openai")),
+            image_api_version = str(_get("image", "api_version", "2024-02-01")),
+            video_backend = str(_get("video", "backend", "fal")),
+            video_api_url = str(_require("video", "api_url")),
+            video_api_key = str(_require("video", "api_key")),
+            video_api_version = str(_get("video", "api_version", "2025-04-01-preview")),
+            video_azure_path = str(_get(
                 "video", "azure_path",
                 "openai/deployments/{deployment}/videos/generations",
-            ),
+            )),
             video_model_image = _parse_list(_require("video", "model_image")),
             video_model_text = _parse_list(_require("video", "model_text")),
-            secret_key = _require("flask", "secret_key"),
-            sd_api_url = _get("sd", "api_url", ""),
-            sd_model = _get("sd", "model", ""),
+            secret_key = str(_require("flask", "secret_key")),
+            sd_api_url = str(_get("sd", "api_url", "")),
+            sd_model = str(_get("sd", "model", "")),
         )
 ```
 
@@ -582,17 +661,9 @@ git commit -m "refactor: app.py uses Config.from_settings() and TOML port"
 
 - [ ] **Step 1: Add `.secrets.toml` to `.gitignore`**
 
-Append to `.gitignore`:
+Append this line to the existing `.gitignore` (do not replace the file):
 
 ```
-.secrets.toml
-```
-
-The file should now contain:
-
-```
-.envrc*
-.cache/
 .secrets.toml
 ```
 
