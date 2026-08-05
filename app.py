@@ -1,6 +1,7 @@
 import io
 import os
 import threading
+from datetime import datetime
 from loguru import logger
 import requests as _requests
 
@@ -19,6 +20,19 @@ from flask import (
 from config import Config
 from translations import get_strings
 from services import job_store, image_gen, video_gen, sd_gen
+
+
+def _cache_artifact(job_id: str, data: bytes, ext: str):
+    """Write artifact bytes to .cache/YYYYMMDD/YYYYMMDD-HHMMSS-{job_id}.{ext}."""
+    now = datetime.now()
+    today = now.strftime("%Y%m%d")
+    ts = now.strftime("%Y%m%d-%H%M%S")
+    cache_dir = os.path.join(".cache", today)
+    os.makedirs(cache_dir, exist_ok=True)
+    path = os.path.join(cache_dir, f"{ts}-{job_id}.{ext}")
+    with open(path, "wb") as f:
+        f.write(data)
+    logger.info("Cached artifact | path={} size={} bytes", path, len(data))
 
 
 def create_app(cfg: Config | None = None) -> Flask:
