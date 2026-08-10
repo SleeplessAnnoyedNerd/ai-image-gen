@@ -221,9 +221,15 @@ def test_generate_multiple_images_passed(client):
 
 def test_generate_dashscope_image(client, cfg):
     """Full pipeline: POST /generate with dashscope image backend."""
-    cfg.image_backend = "dashscope"
-    cfg.image_api_url = "https://ws.example.com/api/v1/services/aigc/multimodal-generation/generation"
-    cfg.image_api_key = "sk-test"
+    from config import ImageBackend
+    cfg.image_backends["dashscope"] = ImageBackend(
+        name="dashscope",
+        api_url="https://ws.example.com/api/v1/services/aigc/multimodal-generation/generation",
+        api_key="sk-test",
+        model=["wan2.7-image"],
+        model_edit=["wan2.7-image"],
+        api_version="",
+    )
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -249,7 +255,78 @@ def test_generate_dashscope_image(client, cfg):
         resp = client.post("/generate", data={
             "output_type": "image",
             "prompt": "a cat wearing a hat",
+            "image_backend": "dashscope",
         })
 
     assert resp.status_code == 200
     assert b"Generating" in resp.data
+
+
+def test_generate_unknown_image_backend_returns_400(client):
+    resp = client.post("/generate", data={
+        "output_type": "image",
+        "prompt": "a cat",
+        "image_backend": "does-not-exist",
+    })
+    assert resp.status_code == 400
+
+
+def test_generate_forwards_selected_backend(client, cfg):
+    from config import ImageBackend
+    cfg.image_backends["fal"] = ImageBackend(
+        name="fal",
+        api_url="https://fal.run",
+        api_key="fal-key",
+        model=["fal-model"],
+        model_edit=["fal-edit-model"],
+        api_version="",
+    )
+
+    with patch("app.image_gen.generate_image", return_value=b"png-bytes") as mock_gen, \
+         patch("app.threading.Thread") as mock_thread:
+        mock_thread.side_effect = lambda target, args, daemon: \
+            type("T", (), {"start": lambda self: target(*args)})()
+
+        client.post("/generate", data={
+            "output_type": "image",
+            "prompt": "a sunset",
+            "image_backend": "fal",
+        })
+
+    assert mock_gen.called
+    kwargs = mock_gen.call_args.kwargs
+    assert kwargs.get("backend") == "fal"
+    assert kwargs.get("model") == "fal-model"
+    assert kwargs.get("model_edit") == "fal-edit-model"
+
+
+def test_index_hides_backend_select_with_one_backend(client):
+    resp = client.get("/")
+    assert b'name="image_backend"' not in resp.data
+
+
+def test_index_shows_backend_select_with_multiple_backends():
+    from app import create_app
+    from config import Config, ImageBackend
+    cfg = Config(
+        image_backends={
+            "openai": ImageBackend(
+                name="openai", api_url="https://a", api_key="k",
+                model=["m1"], model_edit=["m1"], api_version="",
+            ),
+            "fal": ImageBackend(
+                name="fal", api_url="https://b", api_key="k2",
+                model=["m2"], model_edit=["m2"], api_version="",
+            ),
+        },
+        image_default_backend="openai",
+        video_backend="fal", video_api_url="https://v", video_api_key="k",
+        video_api_version="", video_azure_path="",
+        video_model_image=["m"], video_model_text=["m"],
+        secret_key="s", sd_api_url="", sd_model="",
+    )
+    app = create_app(cfg)
+    app.config["TESTING"] = True
+    test_client = app.test_client()
+    resp = test_client.get("/")
+    assert b'name="image_backend"' in resp.data

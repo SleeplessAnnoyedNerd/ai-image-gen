@@ -56,12 +56,16 @@ def create_app(cfg: Config | None = None) -> Flask:
 
     @app.get("/")
     def index():
+        image_backends = {
+            name: {"model": bc.model, "model_edit": bc.model_edit}
+            for name, bc in cfg.image_backends.items()
+        }
         return render_template(
             "index.html",
             t=t(),
             sd_enabled=bool(cfg.sd_api_url),
-            image_models=cfg.image_model,
-            image_models_edit=cfg.image_model_edit,
+            image_backends=image_backends,
+            image_default_backend=cfg.image_default_backend,
             video_models_image=cfg.video_model_image,
             video_models_text=cfg.video_model_text,
         )
@@ -108,8 +112,13 @@ def create_app(cfg: Config | None = None) -> Flask:
         if len(images) > _MAX_IMAGES:
             abort(400)
 
-        image_model       = request.form.get("image_model")       or cfg.image_model[0]
-        image_model_edit  = request.form.get("image_model_edit")  or cfg.image_model_edit[0]
+        image_backend = request.form.get("image_backend") or cfg.image_default_backend
+        if image_backend not in cfg.image_backends:
+            abort(400)
+        bc = cfg.image_backends[image_backend]
+
+        image_model       = request.form.get("image_model")       or bc.model[0]
+        image_model_edit  = request.form.get("image_model_edit")  or bc.model_edit[0]
         video_model_image = request.form.get("video_model_image") or cfg.video_model_image[0]
         video_model_text  = request.form.get("video_model_text")  or cfg.video_model_text[0]
 
@@ -119,7 +128,7 @@ def create_app(cfg: Config | None = None) -> Flask:
         if output_type == "image":
             threading.Thread(
                 target=_run_image_job,
-                args=(cfg, job_id, prompt, images, image_model, image_model_edit),
+                args=(cfg, job_id, prompt, images, image_backend, image_model, image_model_edit),
                 daemon=True,
             ).start()
         elif output_type == "sd":
@@ -214,9 +223,9 @@ def create_app(cfg: Config | None = None) -> Flask:
 # ------------------------------------------------------------------ #
 
 def _run_image_job(cfg: Config, job_id: str, prompt: str, images: list[bytes],
-                   model: str, model_edit: str):
+                   backend: str, model: str, model_edit: str):
     try:
-        data = image_gen.generate_image(cfg, prompt, images, model=model, model_edit=model_edit)
+        data = image_gen.generate_image(cfg, prompt, images, backend=backend, model=model, model_edit=model_edit)
         try:
             _cache_artifact(job_id, data, "png")
         except Exception:

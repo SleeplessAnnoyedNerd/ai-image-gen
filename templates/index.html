@@ -157,31 +157,68 @@
     <div id="adv-panel" class="hidden space-y-3 border border-gray-200 rounded-xl p-4 bg-gray-50">
       <p class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Model selection</p>
 
-      {% if image_models | length > 1 %}
+      {% if image_backends | length > 1 %}
       <div>
-        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_image }}</label>
-        <select name="image_model"
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_image_backend }}</label>
+        <select id="image-backend-select" name="image_backend"
                 class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
                        focus:outline-none focus:ring-2 focus:ring-blue-400">
-          {% for m in image_models %}
-          <option value="{{ m }}">{{ m }}</option>
+          {% for name in image_backends.keys() %}
+          <option value="{{ name }}" {% if name == image_default_backend %}selected{% endif %}>{{ name }}</option>
           {% endfor %}
         </select>
       </div>
       {% endif %}
 
-      {% if image_models_edit | length > 1 %}
-      <div>
-        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_image_edit }}</label>
-        <select name="image_model_edit"
+      <div id="image-model-field" {% if image_backends[image_default_backend].model | length <= 1 %}class="hidden"{% endif %}>
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_image }}</label>
+        <select name="image_model" id="image-model-select"
                 class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
                        focus:outline-none focus:ring-2 focus:ring-blue-400">
-          {% for m in image_models_edit %}
+          {% for m in image_backends[image_default_backend].model %}
           <option value="{{ m }}">{{ m }}</option>
           {% endfor %}
         </select>
       </div>
-      {% endif %}
+
+      <div id="image-model-edit-field" {% if image_backends[image_default_backend].model_edit | length <= 1 %}class="hidden"{% endif %}>
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_image_edit }}</label>
+        <select name="image_model_edit" id="image-model-edit-select"
+                class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
+                       focus:outline-none focus:ring-2 focus:ring-blue-400">
+          {% for m in image_backends[image_default_backend].model_edit %}
+          <option value="{{ m }}">{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <script>
+        (function() {
+          var backendModels = {{ image_backends | tojson }};
+          var backendSelect = document.getElementById('image-backend-select');
+          if (!backendSelect) { return; }
+
+          function rebuild(select, models) {
+            select.innerHTML = '';
+            models.forEach(function(m) {
+              var opt = document.createElement('option');
+              opt.value = m;
+              opt.textContent = m;
+              select.appendChild(opt);
+            });
+          }
+
+          backendSelect.addEventListener('change', function() {
+            var models = backendModels[backendSelect.value];
+            var modelField = document.getElementById('image-model-field');
+            var editField  = document.getElementById('image-model-edit-field');
+            rebuild(document.getElementById('image-model-select'), models.model);
+            rebuild(document.getElementById('image-model-edit-select'), models.model_edit);
+            modelField.classList.toggle('hidden', models.model.length <= 1);
+            editField.classList.toggle('hidden', models.model_edit.length <= 1);
+          });
+        })();
+      </script>
 
       {% if video_models_text | length > 1 %}
       <div>
