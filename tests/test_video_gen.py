@@ -30,7 +30,7 @@ def _mock_result(video_url="https://cdn.fal.ai/video.mp4"):
 
 def test_start_text_to_video(cfg):
     with patch("services.video_gen.requests.post", return_value=_mock_post()) as mock_post:
-        result = start_video_job(cfg, prompt="a flying bird", image_bytes=None)
+        result = start_video_job(cfg, prompt="a flying bird", images=[])
 
     call_args = mock_post.call_args
     assert cfg.video_model_text[0] in call_args.args[0]
@@ -42,7 +42,7 @@ def test_start_text_to_video(cfg):
 
 def test_start_image_to_video(cfg):
     with patch("services.video_gen.requests.post", return_value=_mock_post()) as mock_post:
-        result = start_video_job(cfg, prompt="slow zoom", image_bytes=b"img-data")
+        result = start_video_job(cfg, prompt="slow zoom", images=[b"\xff\xd8\xff\xe0fake-jpeg-data"])
 
     call_args = mock_post.call_args
     assert cfg.video_model_image[0] in call_args.args[0]
@@ -88,7 +88,7 @@ def test_start_fal_uses_cfg_default_text_model(cfg):
         mock_post.return_value.raise_for_status = lambda: None
 
         from services.video_gen import start_video_job
-        start_video_job(cfg, prompt="flying bird", image_bytes=None)
+        start_video_job(cfg, prompt="flying bird", images=[])
 
         url_called = mock_post.call_args[0][0]
         assert cfg.video_model_text[0] in url_called
@@ -102,7 +102,7 @@ def test_start_fal_uses_explicit_model_text(cfg):
         mock_post.return_value.raise_for_status = lambda: None
 
         from services.video_gen import start_video_job
-        start_video_job(cfg, prompt="flying bird", image_bytes=None, model_text="custom/vid")
+        start_video_job(cfg, prompt="flying bird", images=[], model_text="custom/vid")
 
         url_called = mock_post.call_args[0][0]
         assert "custom/vid" in url_called
@@ -116,7 +116,7 @@ def test_start_fal_uses_explicit_model_image(cfg):
         mock_post.return_value.raise_for_status = lambda: None
 
         from services.video_gen import start_video_job
-        start_video_job(cfg, prompt="flying bird", image_bytes=b"img", model_image="custom/img-vid")
+        start_video_job(cfg, prompt="flying bird", images=[b"img"], model_image="custom/img-vid")
 
         url_called = mock_post.call_args[0][0]
         assert "custom/img-vid" in url_called
@@ -157,7 +157,7 @@ def test_dashscope_start_text_to_video():
     mock_resp.raise_for_status = MagicMock()
 
     with patch("services.video_gen.requests.post", return_value=mock_resp) as mock_post:
-        result = start_video_job(cfg, prompt="a cat walking", image_bytes=None)
+        result = start_video_job(cfg, prompt="a cat walking", images=[])
 
     assert result == {"task_id": "task-abc"}
 
@@ -183,7 +183,7 @@ def test_dashscope_start_image_to_video():
     mock_resp.raise_for_status = MagicMock()
 
     with patch("services.video_gen.requests.post", return_value=mock_resp) as mock_post:
-        result = start_video_job(cfg, prompt="slow zoom", image_bytes=b"\x89PNG\r\n\x1a\nfake")
+        result = start_video_job(cfg, prompt="slow zoom", images=[b"\x89PNG\r\n\x1a\nfake"])
 
     assert result == {"task_id": "task-def"}
 
@@ -284,4 +284,92 @@ def test_dashscope_missing_config_raises():
         secret_key="test", sd_api_url="", sd_model="",
     )
     with pytest.raises(ValueError, match="VIDEO_API_URL"):
-        start_video_job(cfg, prompt="a cat", image_bytes=None)
+        start_video_job(cfg, prompt="a cat", images=[])
+
+
+def test_dashscope_multi_image_video_media():
+    """DashScope: 3 images with wan2.7 model produce 3 media[] entries."""
+    cfg = _dashscope_video_cfg()
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+    jpg = b"\xff\xd8\xff\xe0" + b"\x00" * 50
+    png2 = b"\x89PNG\r\n\x1a\n" + b"\xff" * 50
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "output": {"task_id": "task-multi", "task_status": "PENDING"},
+        "request_id": "req-multi",
+    }
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("services.video_gen.requests.post", return_value=mock_resp) as mock_post:
+        result = start_video_job(cfg, prompt="blend these", images=[png, jpg, png2])
+
+    assert result == {"task_id": "task-multi"}
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["model"] == "wan2.7-r2v"
+    assert len(payload["input"]["media"]) == 3
+    assert payload["input"]["media"][0]["url"].startswith("data:image/png;base64,")
+    assert payload["input"]["media"][1]["url"].startswith("data:image/jpeg;base64,")
+    assert payload["input"]["media"][2]["url"].startswith("data:image/png;base64,")
+
+
+def _dashscope_video_cfg_wan26():
+    """Helper to create a Config with wan2.6 video model."""
+    return Config(
+        image_api_url="", image_api_key="",
+        image_model=[""], image_model_edit=[""],
+        image_backend="openai", image_api_version="",
+        video_backend="dashscope",
+        video_api_url="https://ws-c2xbh4slyhwu4ifn.ap-southeast-1.maas.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+        video_api_key="sk-test-key",
+        video_api_version="", video_azure_path="",
+        video_model_image=["wan2.6-r2v"],
+        video_model_text=["wan2.6-t2v"],
+        secret_key="test", sd_api_url="", sd_model="",
+    )
+
+
+def test_dashscope_video_wan26_single_image_only():
+    """DashScope: wan2.6 model sends only first image via img_url, no media[]."""
+    cfg = _dashscope_video_cfg_wan26()
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+    jpg = b"\xff\xd8\xff\xe0" + b"\x00" * 50
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "output": {"task_id": "task-wan26", "task_status": "PENDING"},
+        "request_id": "req-wan26",
+    }
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("services.video_gen.requests.post", return_value=mock_resp) as mock_post:
+        result = start_video_job(cfg, prompt="animate", images=[png, jpg])
+
+    assert result == {"task_id": "task-wan26"}
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["model"] == "wan2.6-r2v"
+    assert "media" not in payload["input"]
+    assert payload["input"]["img_url"].startswith("data:image/png;base64,")
+
+
+def test_dashscope_video_zero_images():
+    """DashScope: empty images list uses text model, no media/img_url."""
+    cfg = _dashscope_video_cfg()
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "output": {"task_id": "task-zero", "task_status": "PENDING"},
+        "request_id": "req-zero",
+    }
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("services.video_gen.requests.post", return_value=mock_resp) as mock_post:
+        result = start_video_job(cfg, prompt="a flying bird", images=[])
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["model"] == "wan2.7-t2v"
+    assert "media" not in payload["input"]
+    assert "img_url" not in payload["input"]
