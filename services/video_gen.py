@@ -1,25 +1,27 @@
-import base64
 import requests
 from urllib.parse import urlparse
 from loguru import logger
 from config import Config
+from services.image_gen import _mime_and_b64
 
 
 def start_video_job(
     cfg: Config,
     prompt: str,
-    image_bytes: bytes | None,
+    images: list[bytes] | None = None,
     model_image: str | None = None,
     model_text: str | None = None,
 ) -> dict:
     """Submit a video generation job. Returns a submit-context dict for poll_video_job."""
+    images = images or []
     model_image = model_image or cfg.video_model_image[0]
     model_text = model_text or cfg.video_model_text[0]
+    first = images[0] if images else None
     if cfg.video_backend == "azure":
-        return _start_azure(cfg, prompt, image_bytes, model_image, model_text)
+        return _start_azure(cfg, prompt, first, model_image, model_text)
     if cfg.video_backend == "dashscope":
-        return _start_dashscope(cfg, prompt, image_bytes, model_image, model_text)
-    return _start_fal(cfg, prompt, image_bytes, model_image, model_text)
+        return _start_dashscope(cfg, prompt, images, model_image, model_text)
+    return _start_fal(cfg, prompt, first, model_image, model_text)
 
 
 def poll_video_job(cfg: Config, submit: dict) -> dict:
@@ -45,12 +47,12 @@ def _start_fal(
     model_image: str,
     model_text: str,
 ) -> dict:
-    if image_bytes is not None:
+    if image_bytes:
         model = model_image
-        img_b64 = base64.b64encode(image_bytes).decode()
+        data_uri = _mime_and_b64(image_bytes)
         payload = {
             "prompt": prompt,
-            "image_url": f"data:image/jpeg;base64,{img_b64}",
+            "image_url": data_uri,
         }
     else:
         model = model_text
@@ -123,11 +125,8 @@ def _start_azure(
         "height": 480,
         "n_variants": 1,
     }
-    if image_bytes is not None:
-        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
-        payload["first_frame_image"] = (
-            f"data:{mime};base64,{base64.b64encode(image_bytes).decode()}"
-        )
+    if image_bytes:
+        payload["first_frame_image"] = _mime_and_b64(image_bytes)
 
     logger.info(
         "Submitting Azure Sora job | deployment={} prompt={!r} has_image={}",
@@ -181,7 +180,7 @@ def _poll_azure(cfg: Config, submit: dict) -> dict:
 def _start_dashscope(
     cfg: Config,
     prompt: str,
-    image_bytes: bytes | None,
+    images: list[bytes],
     model_image: str,
     model_text: str,
 ) -> dict:
@@ -190,7 +189,7 @@ def _start_dashscope(
             "DashScope backend requires VIDEO_API_URL and VIDEO_API_KEY"
         )
 
-    active_model = model_image if image_bytes is not None else model_text
+    active_model = model_image if images else model_text
     url = cfg.video_api_url.rstrip("/")  # strip trailing slash to avoid double //
 
     headers = {
@@ -199,19 +198,12 @@ def _start_dashscope(
         "X-DashScope-Async": "enable",
     }
 
-    data_uri = None
-    if image_bytes is not None:
-        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
-        b64 = base64.b64encode(image_bytes).decode()
-        data_uri = f"data:{mime};base64,{b64}"
-
-    # wan2.6 models use input.img_url, newer models (wan2.7, happyhorse) use input.media[]
     use_media = "wan2.6" not in active_model
-    payload = _build_dashscope_video_payload(active_model, prompt, data_uri, use_media=use_media)
+    payload = _build_dashscope_video_payload(active_model, prompt, images, use_media=use_media)
 
     logger.info(
-        "Submitting DashScope video job | model={} prompt={!r} has_image={} format={}",
-        active_model, prompt, image_bytes is not None, "media" if use_media else "img_url",
+        "Submitting DashScope video job | model={} prompt={!r} n_images={} format={}",
+        active_model, prompt, len(images), "media" if use_media else "img_url",
     )
     resp = requests.post(url, json=payload, headers=headers)
     if not resp.ok:
@@ -227,7 +219,7 @@ def _start_dashscope(
 def _build_dashscope_video_payload(
     model: str,
     prompt: str,
-    data_uri: str | None,
+    images: list[bytes],
     use_media: bool,
 ) -> dict:
     """Build video generation payload. use_media=True for media[] format, False for img_url format."""
@@ -241,13 +233,14 @@ def _build_dashscope_video_payload(
         },
     }
 
-    if data_uri is not None:
+    if images:
+        # ponytail: ~117MB for 10 x 5MB images
         if use_media:
             payload["input"]["media"] = [
-                {"type": "reference_image", "url": data_uri}
+                {"type": "reference_image", "url": _mime_and_b64(img)} for img in images
             ]
         else:
-            payload["input"]["img_url"] = data_uri
+            payload["input"]["img_url"] = _mime_and_b64(images[0])
 
     return payload
 

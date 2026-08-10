@@ -35,29 +35,158 @@
       <label class="block text-lg font-semibold text-gray-700 mb-2">
         {{ t.upload_label }}
       </label>
-      <input type="file" name="image" accept="image/*" id="image-input"
+      <input type="file" name="images" id="image-input"
+             accept="image/*" multiple
              class="block w-full text-lg text-gray-600
                     file:mr-4 file:py-2 file:px-4
                     file:rounded-xl file:border-0
                     file:text-lg file:font-semibold
                     file:bg-blue-50 file:text-blue-700
                     hover:file:bg-blue-100" />
-      <img id="image-preview" src="" alt=""
-           class="mt-3 rounded-xl object-cover hidden"
-           style="width:100px;height:100px;" />
+      <div id="image-grid" class="mt-3 flex flex-wrap gap-3"></div>
+      <p id="upload-max-hint" class="text-sm text-gray-500 mt-1 hidden">{{ t.upload_max }}</p>
     </div>
     <script>
-      document.getElementById('image-input').addEventListener('change', function() {
-        var preview = document.getElementById('image-preview');
-        if (this.files && this.files[0]) {
-          preview.src = URL.createObjectURL(this.files[0]);
-          preview.classList.remove('hidden');
-        } else {
-          preview.src = '';
-          preview.classList.add('hidden');
+      (function() {
+        var input     = document.getElementById('image-input');
+        var grid      = document.getElementById('image-grid');
+        var hint      = document.getElementById('upload-max-hint');
+        var MAX       = 10;
+        // Prevent duplicate registrations during development.
+        if (input._ready) { return; }
+        input._ready = true;
+
+        /* ---- Preview helpers ---- */
+
+        function addPreview(file, idx) {
+          var card = document.createElement('div');
+          card.style.cssText =
+            'position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;' +
+            'border:1px solid #e5e7eb';
+
+          var img = document.createElement('img');
+          img.src         = URL.createObjectURL(file);
+          img.alt         = file.name;
+          img.className   = 'w-full h-full object-cover';
+          img.draggable   = false;
+          card.appendChild(img);
+
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.innerHTML = '&times;';
+          btn.title  = 'Remove ' + file.name;
+          btn.style.cssText =
+            'position:absolute;top:4px;right:4px;' +
+            'background:rgba(0,0,0,.55);color:#fff;border:none;border-radius:50%;' +
+            'width:24px;height:24px;font-size:14px;line-height:24px;text-align:center;' +
+            'cursor:pointer;padding:0;';
+          btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            card.remove();
+            URL.revokeObjectURL(img.src);
+            rebuildFiles(input, grid);
+            updateVisibility(input, grid, hint, MAX);
+          });
+          card.appendChild(btn);
+
+          grid.appendChild(card);
         }
-      });
+
+        function rebuildFiles(input, grid) {
+          if (!(input && input.files)) { return; }
+          var dt = new DataTransfer();
+          var items = grid.querySelectorAll('div > img');
+          for (var i = 0; i < items.length; i++) {
+            dt.items.add(items[i].__file__);
+          }
+          input.files = dt.files;
+        }
+
+        function getGridFiles(grid) {
+          var result = [];
+          var items = grid.querySelectorAll('div > img');
+          for (var i = 0; i < items.length; i++) {
+            result.push(items[i].__file__);
+          }
+          return result;
+        }
+
+        function updateVisibility(input, grid, hint, maxCount) {
+          var remaining = maxCount - grid.children.length;
+          if (remaining <= 0) {
+            input.style.display = 'none';
+            hint.classList.remove('hidden');
+          } else {
+            input.style.display = '';
+            hint.classList.add('hidden');
+          }
+        }
+
+        /* ---- Event listeners ---- */
+
+        input.addEventListener('change', function(e) {
+          if (!this.files || this.files.length === 0) { return; }
+          for (var i = 0; i < this.files.length; i++) {
+            if ((grid.children.length) >= MAX) { break; }
+            var f = this.files[i];
+            // Skip files already shown in the grid.
+            var found = false;
+            grid.querySelectorAll('div > img').forEach(function(el) {
+              if (el.__file__ === f) { found = true; }
+            });
+            if (found) { continue; }
+            addPreview(f, grid.children.length);
+          }
+          updateVisibility(input, grid, hint, MAX);
+          this.value = '';
+        });
+
+        /* Keep input.files in sync after manual DOM changes outside the change handler */
+        function listenInputChanges() {
+          Object.defineProperty(input, 'files', {
+            get: function() {
+              var dt = new DataTransfer();
+              var imgs = grid.querySelectorAll('div > img');
+              for (var i = 0; i < imgs.length; i++) {
+                dt.items.add(imgs[i].__file__);
+              }
+              return dt.files;
+            }
+          });
+        }
+        listenInputChanges();
+
+        /* Override submit to collect all selected images into FormData */
+        function buildFormData(form) {
+          var fd = new FormData();
+          var entries = form.elements;
+          for (var i = 0; i < entries.length; i++) {
+            var el = entries[i];
+            if (!el.name || el.disabled || el.tagName === 'FIELDSET') { continue; }
+            if (el.tagName === 'SELECT') {
+              for (var j = 0; j < el.options.length; j++) {
+                if (el.options[j].selected) { fd.append(el.name, el.options[j].value); }
+              }
+            } else if (el.type === 'file' && el.id === 'image-input') {
+              var files = getGridFiles(grid);
+              for (var j = 0; j < files.length; j++) { fd.append(el.name, files[j]); }
+            } else if (el.type !== 'button' && el.type !== 'submit') {
+              fd.append(el.name, el.value);
+            }
+          }
+          return fd;
+        }
+
+        /* Intercept form submission */
+        document.querySelector('form[hx-post]').addEventListener('htmx:configRequest', function(evt) {
+          var form = evt.detail.elt;
+          var fd = buildFormData(form);
+          delete evt.detail.parameters;
+          evt.detail.formData = fd;
+        });
+      })();
     </script>
+
 
     <!-- Advanced model selection panel -->
     <div id="adv-panel" class="hidden space-y-3 border border-gray-200 rounded-xl p-4 bg-gray-50">

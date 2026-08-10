@@ -8,14 +8,16 @@ _SD1_SIZE = 512
 _SDXL_SIZE = 1024
 
 
-def generate_image_sd(cfg: Config, prompt: str, image_bytes: bytes | None) -> bytes:
+def generate_image_sd(cfg: Config, prompt: str, images: list[bytes] | None = None) -> bytes:
+    images = images or []
+    first = images[0] if images else None
     model = _get_model(cfg.sd_api_url, cfg.sd_model)
     base = model.get("base", "sd-1")
     size = _SDXL_SIZE if base == "sdxl" else _SD1_SIZE
-    logger.info("SD generation | model={} base={} has_image={}", model["name"], base, image_bytes is not None)
+    logger.info("SD generation | model={} base={} n_images={}", model["name"], base, len(images))
 
-    if image_bytes is not None:
-        image_name = _upload_image(cfg.sd_api_url, image_bytes)
+    if first is not None:
+        image_name = _upload_image(cfg.sd_api_url, first)
         graph = _img2img_graph(model, prompt, image_name, size)
     else:
         graph = _txt2img_graph(model, prompt, size)
