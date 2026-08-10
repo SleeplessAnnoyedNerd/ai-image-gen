@@ -10,8 +10,9 @@
 
 ## Global Constraints
 
-- `images` parameter is always `list[bytes]`, never `None`. Empty list `[]` means no images.
-- Server-side max 10 files, per-file max 10MB, total request max 120MB.
+- `images` parameter: `list[bytes] | None = None` at function signature level (for backward compat), normalized to `[]` immediately inside the function via `images = images or []`. Downstream code always works with `list[bytes]`.
+- Server-side max 10 files, per-file max 10MB, per-file min 1 byte (skip empty), total request max 120MB.
+- Non-DashScope backends that do MIME detection must use `_mime_and_b64` from `services.image_gen` instead of inline `[:4]` checks (avoids crash on tiny files).
 - Two-space indentation, no tabs.
 - All existing tests must pass after each task.
 - Existing tests using `image_bytes=` must be updated to `images=` in the same task that changes the signature.
@@ -226,7 +227,54 @@ def _generate_dashscope(
     return img_resp.content
 ```
 
-- [ ] **Step 3: Update existing tests to use `images=` parameter**
+- [ ] **Step 3: Replace inline MIME detection in `_generate_azure` and `_generate_fal`**
+
+In `_generate_azure`, replace the inline MIME detection (line ~49):
+
+```python
+        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
+        ext = "png" if mime == "image/png" else "jpg"
+```
+
+with:
+
+```python
+        data_uri = _mime_and_b64(image_bytes)
+        ext = "png" if data_uri.startswith("data:image/png") else "jpg"
+```
+
+and use `data_uri` wherever the base64 data URI is needed. The `image=` tuple for the Azure SDK call becomes:
+
+```python
+        response = client.images.edit(
+            model=model_edit,
+            image=(f"image.{ext}", io.BytesIO(image_bytes), data_uri.split(";")[0].replace("data:", "")),
+            prompt=prompt,
+            n=1,
+        )
+```
+
+In `_generate_fal`, replace (line ~106-110):
+
+```python
+        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
+        img_b64 = base64.b64encode(image_bytes).decode()
+        payload: dict = {
+            "prompt": prompt,
+            "image_urls": [f"data:{mime};base64,{img_b64}"],
+        }
+```
+
+with:
+
+```python
+        payload: dict = {
+            "prompt": prompt,
+            "image_urls": [_mime_and_b64(image_bytes)],
+        }
+```
+
+- [ ] **Step 4: Update existing tests to use `images=` parameter**
 
 In `tests/test_image_gen.py`, update these tests:
 
@@ -244,7 +292,7 @@ In `tests/test_image_gen.py`, update these tests:
 
 7. `test_dashscope_missing_config_raises`: `generate_image(cfg, prompt="a cat")` — no change needed.
 
-- [ ] **Step 4: Add new multi-image tests**
+- [ ] **Step 5: Add new multi-image tests**
 
 Add to `tests/test_image_gen.py`:
 
@@ -380,12 +428,12 @@ def test_non_dashscope_receives_first_image_only():
         assert img_io.read() == b"first-img"
 ```
 
-- [ ] **Step 5: Run all image_gen tests**
+- [ ] **Step 6: Run all image_gen tests**
 
 Run: `pytest tests/test_image_gen.py -v`
 Expected: all PASS
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add services/image_gen.py tests/test_image_gen.py
@@ -638,12 +686,56 @@ git commit -m "feat: video_gen accepts images: list[bytes], DashScope multi-imag
 
 **Files:**
 - Modify: `services/sd_gen.py`
+- Test: `tests/test_sd_gen.py`
 
 **Interfaces:**
 - Consumes: nothing new
 - Produces: `generate_image_sd(cfg, prompt, images: list[bytes]) -> bytes`
 
-- [ ] **Step 1: Update `generate_image_sd` signature**
+- [ ] **Step 1: Write a minimal test for `generate_image_sd`**
+
+Create `tests/test_sd_gen.py`:
+
+```python
+from unittest.mock import patch, MagicMock
+from services.sd_gen import generate_image_sd
+
+
+def test_sd_accepts_images_list(cfg):
+    """generate_image_sd accepts images: list[bytes] and extracts first."""
+    mock_model = {"key": "m", "hash": "m", "name": "TestModel", "base": "sdxl", "type": "main"}
+
+    with patch("services.sd_gen._get_model", return_value=mock_model), \
+         patch("services.sd_gen._upload_image", return_value="img-name") as mock_upload, \
+         patch("services.sd_gen._img2img_graph", return_value={"id": "g"}) as mock_graph, \
+         patch("services.sd_gen._enqueue", return_value="batch-1"), \
+         patch("services.sd_gen._wait_and_fetch", return_value=b"png-bytes"):
+        result = generate_image_sd(cfg, prompt="test", images=[b"first-img", b"second-img"])
+
+    assert result == b"png-bytes"
+    mock_upload.assert_called_once_with(cfg.sd_api_url, b"first-img")
+
+
+def test_sd_empty_images_uses_txt2img(cfg):
+    """generate_image_sd with empty list uses txt2img path."""
+    mock_model = {"key": "m", "hash": "m", "name": "TestModel", "base": "sdxl", "type": "main"}
+
+    with patch("services.sd_gen._get_model", return_value=mock_model), \
+         patch("services.sd_gen._txt2img_graph", return_value={"id": "g"}) as mock_txt2img, \
+         patch("services.sd_gen._enqueue", return_value="batch-1"), \
+         patch("services.sd_gen._wait_and_fetch", return_value=b"png-bytes"):
+        result = generate_image_sd(cfg, prompt="test", images=[])
+
+    assert result == b"png-bytes"
+    mock_txt2img.assert_called_once()
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_sd_gen.py -v`
+Expected: FAIL (signature mismatch — `generate_image_sd` still takes `image_bytes`)
+
+- [ ] **Step 3: Update `generate_image_sd` signature**
 
 Replace the function signature and image extraction in `services/sd_gen.py`:
 
@@ -666,15 +758,20 @@ def generate_image_sd(cfg: Config, prompt: str, images: list[bytes] | None = Non
     return _wait_and_fetch(cfg.sd_api_url, batch_id)
 ```
 
-- [ ] **Step 2: Run full test suite to verify no regressions**
+- [ ] **Step 4: Run all SD tests**
+
+Run: `pytest tests/test_sd_gen.py -v`
+Expected: all PASS
+
+- [ ] **Step 5: Run full test suite to verify no regressions**
 
 Run: `pytest tests/ -v`
 Expected: all PASS
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add services/sd_gen.py
+git add services/sd_gen.py tests/test_sd_gen.py
 git commit -m "feat: sd_gen accepts images: list[bytes], extracts first image"
 ```
 
@@ -706,10 +803,11 @@ def test_generate_rejects_more_than_10_images(client):
     assert resp.status_code == 400
 
 
-def test_generate_skips_oversized_files(client):
-    """Files > 10MB are skipped, remaining files are processed."""
-    big = b"\x89PNG" + b"\x00" * (11 * 1024 * 1024)  # 11MB
-    small = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+def test_generate_skips_oversized_files(client, monkeypatch):
+    """Files exceeding size limit are skipped, remaining files are processed."""
+    monkeypatch.setattr("app._MAX_FILE_SIZE", 100)  # 100 bytes for test
+    big = b"\x89PNG" + b"\x00" * 200  # 204 bytes, over the 100-byte test limit
+    small = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50  # 58 bytes, under limit
 
     with patch("app.image_gen.generate_image", return_value=b"png-bytes") as mock_gen, \
          patch("app.threading.Thread") as mock_thread:
@@ -728,7 +826,6 @@ def test_generate_skips_oversized_files(client):
         )
 
     assert resp.status_code == 200
-    # The worker should have been called with only the small file
     assert mock_gen.called
     images_arg = mock_gen.call_args.kwargs.get("images") or mock_gen.call_args.args[2]
     assert len(images_arg) == 1
@@ -777,6 +874,27 @@ def test_generate_no_images_sends_empty_list(client):
     assert images_arg == []
 
 
+def test_generate_exactly_10_images_succeeds(client):
+    """POST with exactly 10 image files returns 200 (boundary test)."""
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    files = [("images", (io.BytesIO(png), f"img{i}.png")) for i in range(10)]
+
+    with patch("app.image_gen.generate_image", return_value=b"png-bytes") as mock_gen, \
+         patch("app.threading.Thread") as mock_thread:
+        mock_thread.side_effect = lambda target, args, daemon: \
+            type("T", (), {"start": lambda self: target(*args)})()
+
+        resp = client.post(
+            "/generate",
+            data=[("output_type", "image"), ("prompt", "test")] + files,
+            content_type="multipart/form-data",
+        )
+
+    assert resp.status_code == 200
+    images_arg = mock_gen.call_args.kwargs.get("images") or mock_gen.call_args.args[2]
+    assert len(images_arg) == 10
+
+
 def test_generate_multiple_images_passed(client):
     """POST with 3 images passes all 3 to the service."""
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
@@ -809,7 +927,14 @@ Expected: FAIL
 
 - [ ] **Step 3: Update `app.py` generate route**
 
-In `app.py`, replace the image reading section in `generate()` (lines 89-94):
+Add module-level constant near the top of `app.py` (after imports):
+
+```python
+_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB per file
+_MAX_IMAGES = 10
+```
+
+Then replace the image reading section in `generate()`:
 
 ```python
 @app.post("/generate")
@@ -817,20 +942,20 @@ def generate():
     output_type = request.form.get("output_type", "image")
     prompt = request.form.get("prompt", "").strip()
 
-    # Read all uploaded files, filter empty filenames
+    # Read all uploaded files, filter empty filenames and empty/oversized files
     raw_files = request.files.getlist("images")
-    _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB per file
     images = []
     for f in raw_files:
         if not f.filename:
             continue
         data = f.read()
+        if len(data) == 0:
+            continue
         if len(data) > _MAX_FILE_SIZE:
             logger.warning("Skipping oversized file | name={} size={} bytes", f.filename, len(data))
             continue
         images.append(data)
 
-    _MAX_IMAGES = 10
     if len(images) > _MAX_IMAGES:
         abort(400)
 
@@ -1038,7 +1163,9 @@ Replace the existing image upload `<div>` and its `<script>` (lines 34-60) with:
           var dt = new DataTransfer();
           selectedFiles.forEach(function(f) { dt.items.add(f); });
           input.files = dt.files;
-          hint.classList.toggle('hidden', selectedFiles.length < MAX_IMAGES);
+          var atCap = selectedFiles.length >= MAX_IMAGES;
+          hint.classList.toggle('hidden', !atCap);
+          input.style.display = atCap ? 'none' : '';
         }
 
         function renderPreviews() {
@@ -1105,6 +1232,6 @@ Start the app and verify:
 - [ ] **Step 3: Commit any fixes**
 
 ```bash
-git add -A
+git add app.py services/ templates/ tests/ translations.py
 git commit -m "fix: integration fixes for multi-image upload"
 ```
