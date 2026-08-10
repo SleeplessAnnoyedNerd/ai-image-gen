@@ -3,7 +3,7 @@ import io
 import requests as _requests
 from loguru import logger
 from openai import OpenAI, AzureOpenAI
-from config import Config
+from config import Config, ImageBackend
 
 
 def _mime_and_b64(img_bytes: bytes) -> str:
@@ -26,24 +26,27 @@ def generate_image(
     cfg: Config,
     prompt: str,
     images: list[bytes] | None = None,
+    backend: str | None = None,
     model: str | None = None,
     model_edit: str | None = None,
 ) -> bytes:
     images = images or []
-    model = model or cfg.image_model[0]
-    model_edit = model_edit or cfg.image_model_edit[0]
+    backend = backend or cfg.image_default_backend
+    bc = cfg.image_backends[backend]
+    model = model or bc.model[0]
+    model_edit = model_edit or bc.model_edit[0]
     first = images[0] if images else None
-    if cfg.image_backend == "fal":
-        return _generate_fal(cfg, prompt, first, model, model_edit)
-    if cfg.image_backend == "azure":
-        return _generate_azure(cfg, prompt, first, model, model_edit)
-    if cfg.image_backend == "dashscope":
-        return _generate_dashscope(cfg, prompt, images, model, model_edit)
-    return _generate_openai(cfg, prompt, first, model, model_edit)
+    if backend == "fal":
+        return _generate_fal(bc, prompt, first, model, model_edit)
+    if backend == "azure":
+        return _generate_azure(bc, prompt, first, model, model_edit)
+    if backend == "dashscope":
+        return _generate_dashscope(bc, prompt, images, model, model_edit)
+    return _generate_openai(bc, prompt, first, model, model_edit)
 
 
 def _generate_azure(
-    cfg: Config,
+    bc: ImageBackend,
     prompt: str,
     image_bytes: bytes | None,
     model: str,
@@ -51,12 +54,12 @@ def _generate_azure(
 ) -> bytes:
     logger.info(
         "Azure config | endpoint={} api_version={} model={} model_edit={}",
-        cfg.image_api_url, cfg.image_api_version, model, model_edit,
+        bc.api_url, bc.api_version, model, model_edit,
     )
     client = AzureOpenAI(
-        api_key=cfg.image_api_key,
-        azure_endpoint=cfg.image_api_url,
-        api_version=cfg.image_api_version,
+        api_key=bc.api_key,
+        azure_endpoint=bc.api_url,
+        api_version=bc.api_version,
     )
 
     if image_bytes is None:
@@ -85,13 +88,13 @@ def _generate_azure(
 
 
 def _generate_openai(
-    cfg: Config,
+    bc: ImageBackend,
     prompt: str,
     image_bytes: bytes | None,
     model: str,
     model_edit: str,
 ) -> bytes:
-    client = OpenAI(api_key=cfg.image_api_key, base_url=cfg.image_api_url)
+    client = OpenAI(api_key=bc.api_key, base_url=bc.api_url)
 
     if image_bytes is None:
         logger.info("Generating image (openai) | model={} prompt={!r}", model, prompt)
@@ -114,7 +117,7 @@ def _generate_openai(
 
 
 def _generate_fal(
-    cfg: Config,
+    bc: ImageBackend,
     prompt: str,
     image_bytes: bytes | None,
     model: str,
@@ -130,9 +133,9 @@ def _generate_fal(
         payload = {"prompt": prompt}
         active_model = model
 
-    url = f"{cfg.image_api_url.rstrip('/')}/{active_model}"
+    url = f"{bc.api_url.rstrip('/')}/{active_model}"
     headers = {
-        "Authorization": f"Key {cfg.image_api_key}",
+        "Authorization": f"Key {bc.api_key}",
         "Content-Type": "application/json",
     }
 
@@ -153,19 +156,19 @@ def _generate_fal(
 
 
 def _generate_dashscope(
-    cfg: Config,
+    bc: ImageBackend,
     prompt: str,
     images: list[bytes],
     model: str,
     model_edit: str,
 ) -> bytes:
-    if not cfg.image_api_url or not cfg.image_api_key:
+    if not bc.api_url or not bc.api_key:
         raise ValueError(
             "DashScope backend requires IMAGE_API_URL and IMAGE_API_KEY"
         )
 
     active_model = model_edit if images else model
-    url = cfg.image_api_url.rstrip("/")
+    url = bc.api_url.rstrip("/")
 
     content = [{"text": prompt}]
     for img_bytes in images:
@@ -186,7 +189,7 @@ def _generate_dashscope(
     }
 
     headers = {
-        "Authorization": f"Bearer {cfg.image_api_key}",
+        "Authorization": f"Bearer {bc.api_key}",
         "Content-Type": "application/json",
     }
 
