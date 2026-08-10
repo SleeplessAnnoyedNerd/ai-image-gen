@@ -43,8 +43,8 @@
                     file:text-lg file:font-semibold
                     file:bg-blue-50 file:text-blue-700
                     hover:file:bg-blue-100" />
-      <p class="text-sm text-gray-500 mt-1">{{ t.upload_max }}</p>
       <div id="image-grid" class="mt-3 flex flex-wrap gap-3"></div>
+      <p class="text-sm text-gray-500 mt-1">{{ t.upload_max }}</p>
     </div>
     <script>
       (function() {
@@ -52,7 +52,8 @@
         var grid      = document.getElementById('image-grid');
         var MAX       = 10;
         // Prevent duplicate registrations during development.
-        if (input._ready) return; input._ready = true;
+        if (input._ready) { return; }
+        input._ready = true;
 
         /* ---- Preview helpers ---- */
 
@@ -87,10 +88,6 @@
           });
           card.appendChild(btn);
 
-          card.addEventListener('click', function() {
-            showOverlay(img.src);
-          });
-
           grid.appendChild(card);
         }
 
@@ -119,7 +116,6 @@
             input.style.display = 'none';
           } else {
             input.style.display = '';
-            input.multiple = (remaining > 1);
           }
         }
 
@@ -132,9 +128,9 @@
             // Skip files already shown in the grid.
             var found = false;
             grid.querySelectorAll('div > img').forEach(function(el) {
-              if (el.__file__ === f) found = true;
+              if (el.__file__ === f) { found = true; }
             });
-            if (found) continue;
+            if (found) { continue; }
             addPreview(f, grid.children.length);
           }
           updateVisibility(input, grid, MAX);
@@ -156,39 +152,20 @@
         }
         listenInputChanges();
 
-        /* Shared fullscreen preview overlay */
-        var __overlay__     = null;
-        var __overlayImg__  = null;
-        function showOverlay(src) {
-          if (!__overlay__) {
-            __overlay__     = document.createElement('div');
-            __overlayImg__  = document.createElement('img');
-            __overlay__.style.cssText =
-              'display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);' +
-              'z-index:9999;align-items:center;justify-content:center;cursor:zoom-out';
-            __overlayImg__.style.cssText = 'max-width:90vw;max-height:90vh;border-radius:8px;pointer-events:none';
-            __overlay__.appendChild(__overlayImg__);
-            __overlay__.addEventListener('click', function() { __overlay__.style.display = 'none'; });
-            document.body.appendChild(__overlay__);
-          }
-          __overlayImg__.src = src;
-          __overlay__.style.display = 'flex';
-        }
-
         /* Override submit to collect all selected images into FormData */
         function buildFormData(form) {
           var fd = new FormData();
           var entries = form.elements;
           for (var i = 0; i < entries.length; i++) {
             var el = entries[i];
-            if (!el.name || el.disabled || el.tagName === 'FIELDSET') continue;
+            if (!el.name || el.disabled || el.tagName === 'FIELDSET') { continue; }
             if (el.tagName === 'SELECT') {
               for (var j = 0; j < el.options.length; j++) {
-                if (el.options[j].selected) fd.append(el.name, el.options[j].value);
+                if (el.options[j].selected) { fd.append(el.name, el.options[j].value); }
               }
             } else if (el.type === 'file' && el.id === 'image-input') {
               var files = getGridFiles(grid);
-              for (var j = 0; j < files.length; j++) fd.append(el.name, files[j]);
+              for (var j = 0; j < files.length; j++) { fd.append(el.name, files[j]); }
             } else if (el.type !== 'button' && el.type !== 'submit') {
               fd.append(el.name, el.value);
             }
