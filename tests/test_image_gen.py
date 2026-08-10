@@ -173,3 +173,45 @@ def test_dashscope_missing_config_raises():
     )
     with pytest.raises(ValueError, match="IMAGE_API_URL"):
         generate_image(cfg, prompt="a cat")
+
+
+# --- _mime_and_b64 tests ---
+
+from services.image_gen import _mime_and_b64
+
+
+def test_mime_and_b64_png():
+    result = _mime_and_b64(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    assert result.startswith("data:image/png;base64,")
+
+
+def test_mime_and_b64_jpeg():
+    result = _mime_and_b64(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+    assert result.startswith("data:image/jpeg;base64,")
+
+
+def test_mime_and_b64_webp():
+    data = b"RIFF" + b"\x00" * 4 + b"WEBP" + b"\x00" * 100
+    result = _mime_and_b64(data)
+    assert result.startswith("data:image/webp;base64,")
+
+
+def test_mime_and_b64_gif():
+    result = _mime_and_b64(b"GIF89a" + b"\x00" * 100)
+    assert result.startswith("data:image/gif;base64,")
+
+
+def test_mime_and_b64_unknown():
+    result = _mime_and_b64(b"\x00\x01\x02\x03")
+    assert result.startswith("data:application/octet-stream;base64,")
+
+
+def test_mime_and_b64_tiny_file():
+    """Files smaller than 4 bytes must not crash."""
+    result = _mime_and_b64(b"\x89")
+    assert result.startswith("data:application/octet-stream;base64,")
+
+
+def test_mime_and_b64_empty():
+    result = _mime_and_b64(b"")
+    assert result.startswith("data:application/octet-stream;base64,")

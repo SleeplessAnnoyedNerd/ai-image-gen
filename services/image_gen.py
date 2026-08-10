@@ -6,6 +6,22 @@ from openai import OpenAI, AzureOpenAI
 from config import Config
 
 
+def _mime_and_b64(img_bytes: bytes) -> str:
+    """Return data URI string with best-effort MIME detection."""
+    if ((len(img_bytes) >= 4) and (img_bytes[:4] == b'\x89PNG')):
+        mime = "image/png"
+    elif ((len(img_bytes) >= 3) and (img_bytes[:3] == b'\xff\xd8\xff')):
+        mime = "image/jpeg"
+    elif ((len(img_bytes) >= 12) and (img_bytes[:4] == b'RIFF') and (img_bytes[8:12] == b'WEBP')):
+        mime = "image/webp"
+    elif ((len(img_bytes) >= 6) and (img_bytes[:6] in (b'GIF87a', b'GIF89a'))):
+        mime = "image/gif"
+    else:
+        mime = "application/octet-stream"
+    b64 = base64.b64encode(img_bytes).decode()
+    return f"data:{mime};base64,{b64}"
+
+
 def generate_image(
     cfg: Config,
     prompt: str,
