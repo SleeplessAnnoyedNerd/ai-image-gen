@@ -44,7 +44,7 @@
                     file:bg-blue-50 file:text-blue-700
                     hover:file:bg-blue-100" />
       <div id="image-grid" class="mt-3 flex flex-wrap gap-3"></div>
-      <p class="text-sm text-gray-500 mt-1">{{ t.upload_max }}</p>
+      <p id="upload-max-hint" class="text-sm text-gray-500 mt-1 hidden">{{ t.upload_max }}</p>
     </div>
     <script>
       (function() {
@@ -84,7 +84,7 @@
             card.remove();
             URL.revokeObjectURL(img.src);
             rebuildFiles(input, grid);
-            updateVisibility(input, grid, MAX);
+            updateVisibility(input, grid, document.getElementById('upload-max-hint'), MAX);
           });
           card.appendChild(btn);
 
@@ -110,12 +110,14 @@
           return result;
         }
 
-        function updateVisibility(input, grid, maxCount) {
+        function updateVisibility(input, grid, hint, maxCount) {
           var remaining = maxCount - grid.children.length;
           if (remaining <= 0) {
             input.style.display = 'none';
+            hint.classList.remove('hidden');
           } else {
             input.style.display = '';
+            hint.classList.add('hidden');
           }
         }
 
@@ -124,6 +126,7 @@
         input.addEventListener('change', function(e) {
           if (!this.files || this.files.length === 0) { return; }
           for (var i = 0; i < this.files.length; i++) {
+            if ((grid.children.length) >= MAX) { break; }
             var f = this.files[i];
             // Skip files already shown in the grid.
             var found = false;
@@ -133,7 +136,7 @@
             if (found) { continue; }
             addPreview(f, grid.children.length);
           }
-          updateVisibility(input, grid, MAX);
+          updateVisibility(input, grid, hint, MAX);
           this.value = '';
         });
 
