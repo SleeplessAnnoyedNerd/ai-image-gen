@@ -141,13 +141,16 @@ def _patch_settings(monkeypatch, settings_data, secrets_data=None):
     monkeypatch.setattr(cfg_module, "_settings", merged)
 
 
-def test_from_settings_single_models(monkeypatch):
+def test_from_settings_single_backend_single_models(monkeypatch):
     _patch_settings(monkeypatch, {
         "flask": {"secret_key": "s3cr3t", "port": 5005},
         "image": {
-            "api_url": "https://img.example.com/v1",
-            "model": ["my/image-model"],
-            "model_edit": ["my/edit-model"],
+            "default_backend": "openai",
+            "openai": {
+                "api_url": "https://img.example.com/v1",
+                "model": ["my/image-model"],
+                "model_edit": ["my/edit-model"],
+            },
         },
         "video": {
             "api_url": "https://vid.example.com",
@@ -155,24 +158,36 @@ def test_from_settings_single_models(monkeypatch):
             "model_text": ["my/vid-txt-model"],
         },
     }, {
-        "image": {"api_key": "img-key"},
+        "image": {"openai": {"api_key": "img-key"}},
         "video": {"api_key": "vid-key"},
     })
     cfg = Config.from_settings()
-    assert cfg.image_model == ["my/image-model"]
-    assert cfg.image_model_edit == ["my/edit-model"]
+    assert set(cfg.image_backends.keys()) == {"openai"}
+    bc = cfg.image_backends["openai"]
+    assert bc.model == ["my/image-model"]
+    assert bc.model_edit == ["my/edit-model"]
+    assert bc.api_key == "img-key"
+    assert cfg.image_default_backend == "openai"
     assert cfg.video_model_image == ["my/vid-img-model"]
     assert cfg.video_model_text == ["my/vid-txt-model"]
     assert cfg.secret_key == "s3cr3t"
 
 
-def test_from_settings_multi_models(monkeypatch):
+def test_from_settings_multiple_backends(monkeypatch):
     _patch_settings(monkeypatch, {
         "flask": {"secret_key": "s3cr3t", "port": 5005},
         "image": {
-            "api_url": "https://img.example.com/v1",
-            "model": ["model-a", "model-b"],
-            "model_edit": ["my/edit-model"],
+            "default_backend": "fal",
+            "dashscope": {
+                "api_url": "https://img.example.com/v1",
+                "model": ["model-a", "model-b"],
+                "model_edit": ["edit-a"],
+            },
+            "fal": {
+                "api_url": "https://fal.run",
+                "model": ["fal-model"],
+                "model_edit": ["fal-edit-model"],
+            },
         },
         "video": {
             "api_url": "https://vid.example.com",
@@ -180,22 +195,81 @@ def test_from_settings_multi_models(monkeypatch):
             "model_text": ["vid-x", "vid-y", "vid-z"],
         },
     }, {
-        "image": {"api_key": "img-key"},
+        "image": {
+            "dashscope": {"api_key": "ds-key"},
+            "fal": {"api_key": "fal-key"},
+        },
         "video": {"api_key": "vid-key"},
     })
     cfg = Config.from_settings()
-    assert cfg.image_model == ["model-a", "model-b"]
+    assert set(cfg.image_backends.keys()) == {"dashscope", "fal"}
+    assert cfg.image_backends["dashscope"].model == ["model-a", "model-b"]
+    assert cfg.image_backends["fal"].model == ["fal-model"]
+    assert cfg.image_default_backend == "fal"
     assert cfg.video_model_text == ["vid-x", "vid-y", "vid-z"]
 
 
-def test_from_settings_missing_required(monkeypatch):
+def test_from_settings_backend_without_api_key_excluded(monkeypatch):
     _patch_settings(monkeypatch, {
         "flask": {"secret_key": "s3cr3t", "port": 5005},
         "image": {
-            "api_url": "https://img.example.com/v1",
-            "model": ["m"],
-            "model_edit": ["m"],
-            # missing api_key
+            "default_backend": "dashscope",
+            "dashscope": {
+                "api_url": "https://img.example.com/v1",
+                "model": ["m"],
+                "model_edit": ["m"],
+            },
+            "fal": {
+                "api_url": "https://fal.run",
+                "model": ["fal-model"],
+                "model_edit": ["fal-edit"],
+            },
+        },
+        "video": {
+            "api_url": "https://vid.example.com",
+            "model_image": ["m"],
+            "model_text": ["m"],
+        },
+    }, {
+        "image": {"dashscope": {"api_key": "ds-key"}},
+        "video": {"api_key": "vid-key"},
+    })
+    cfg = Config.from_settings()
+    assert set(cfg.image_backends.keys()) == {"dashscope"}
+
+
+def test_from_settings_default_backend_falls_back(monkeypatch):
+    _patch_settings(monkeypatch, {
+        "flask": {"secret_key": "s3cr3t", "port": 5005},
+        "image": {
+            "dashscope": {
+                "api_url": "https://img.example.com/v1",
+                "model": ["m"],
+                "model_edit": ["m"],
+            },
+        },
+        "video": {
+            "api_url": "https://vid.example.com",
+            "model_image": ["m"],
+            "model_text": ["m"],
+        },
+    }, {
+        "image": {"dashscope": {"api_key": "ds-key"}},
+        "video": {"api_key": "vid-key"},
+    })
+    cfg = Config.from_settings()
+    assert cfg.image_default_backend == "dashscope"
+
+
+def test_from_settings_no_image_backends_raises(monkeypatch):
+    _patch_settings(monkeypatch, {
+        "flask": {"secret_key": "s3cr3t", "port": 5005},
+        "image": {
+            "dashscope": {
+                "api_url": "https://img.example.com/v1",
+                "model": ["m"],
+                "model_edit": ["m"],
+            },
         },
         "video": {
             "api_url": "https://vid.example.com",
@@ -205,7 +279,50 @@ def test_from_settings_missing_required(monkeypatch):
     }, {
         "video": {"api_key": "vid-key"},
     })
-    with pytest.raises(EnvironmentError, match="image.*api_key"):
+    with pytest.raises(EnvironmentError, match=r"No \[image\.\*\] backend"):
+        Config.from_settings()
+
+
+def test_from_settings_backend_missing_models_raises(monkeypatch):
+    _patch_settings(monkeypatch, {
+        "flask": {"secret_key": "s3cr3t", "port": 5005},
+        "image": {
+            "dashscope": {
+                "api_url": "https://img.example.com/v1",
+            },
+        },
+        "video": {
+            "api_url": "https://vid.example.com",
+            "model_image": ["m"],
+            "model_text": ["m"],
+        },
+    }, {
+        "image": {"dashscope": {"api_key": "ds-key"}},
+        "video": {"api_key": "vid-key"},
+    })
+    with pytest.raises(EnvironmentError, match="dashscope.*model"):
+        Config.from_settings()
+
+
+def test_from_settings_backend_missing_api_url_raises(monkeypatch):
+    _patch_settings(monkeypatch, {
+        "flask": {"secret_key": "s3cr3t", "port": 5005},
+        "image": {
+            "dashscope": {
+                "model": ["m"],
+                "model_edit": ["m"],
+            },
+        },
+        "video": {
+            "api_url": "https://vid.example.com",
+            "model_image": ["m"],
+            "model_text": ["m"],
+        },
+    }, {
+        "image": {"dashscope": {"api_key": "ds-key"}},
+        "video": {"api_key": "vid-key"},
+    })
+    with pytest.raises(EnvironmentError, match="dashscope.*api_url"):
         Config.from_settings()
 
 
@@ -214,9 +331,11 @@ def test_from_settings_defaults(monkeypatch):
     _patch_settings(monkeypatch, {
         "flask": {"secret_key": "s3cr3t", "port": 5005},
         "image": {
-            "api_url": "https://img.example.com/v1",
-            "model": ["m"],
-            "model_edit": ["m"],
+            "dashscope": {
+                "api_url": "https://img.example.com/v1",
+                "model": ["m"],
+                "model_edit": ["m"],
+            },
         },
         "video": {
             "api_url": "https://vid.example.com",
@@ -224,19 +343,16 @@ def test_from_settings_defaults(monkeypatch):
             "model_text": ["m"],
         },
     }, {
-        "image": {"api_key": "img-key"},
+        "image": {"dashscope": {"api_key": "img-key"}},
         "video": {"api_key": "vid-key"},
     })
     cfg = Config.from_settings()
-    assert cfg.image_backend == "openai"
+    assert cfg.image_backends["dashscope"].api_version == "2024-02-01"
     assert cfg.video_backend == "fal"
-    assert cfg.image_api_version == "2024-02-01"
     assert cfg.video_api_version == "2025-04-01-preview"
     assert cfg.sd_api_url == ""
     assert cfg.sd_model == ""
 
-
-# --- Integration test: real TOML files on disk ---
 
 def test_from_settings_real_toml_files(tmp_path, monkeypatch):
     """Write actual TOML files and verify end-to-end loading."""
@@ -249,7 +365,9 @@ def test_from_settings_real_toml_files(tmp_path, monkeypatch):
         'port = 5005\n'
         '\n'
         '[image]\n'
-        'backend = "fal"\n'
+        'default_backend = "fal"\n'
+        '\n'
+        '[image.fal]\n'
         'api_url = "https://img.example.com"\n'
         'model = ["model-a", "model-b"]\n'
         'model_edit = ["edit-model"]\n'
@@ -262,7 +380,7 @@ def test_from_settings_real_toml_files(tmp_path, monkeypatch):
     )
     secrets_file = tmp_path / ".secrets.toml"
     secrets_file.write_text(
-        '[image]\n'
+        '[image.fal]\n'
         'api_key = "real-img-key"\n'
         '\n'
         '[video]\n'
@@ -276,8 +394,8 @@ def test_from_settings_real_toml_files(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg_module, "_settings", merged)
 
     cfg = Config.from_settings()
-    assert cfg.image_api_key == "real-img-key"
+    assert cfg.image_backends["fal"].api_key == "real-img-key"
     assert cfg.video_api_key == "real-vid-key"
-    assert cfg.image_model == ["model-a", "model-b"]
-    assert cfg.image_backend == "fal"
+    assert cfg.image_backends["fal"].model == ["model-a", "model-b"]
+    assert cfg.image_default_backend == "fal"
     assert cfg.secret_key == "test-secret"

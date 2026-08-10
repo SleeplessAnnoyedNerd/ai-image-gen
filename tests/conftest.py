@@ -1,17 +1,22 @@
 import pytest
 from app import create_app
-from config import Config
+from config import Config, ImageBackend
 
 
 @pytest.fixture
 def cfg():
     return Config(
-        image_api_url="https://image.example.com/v1",
-        image_api_key="test-image-key",
-        image_model=["test/image-model"],
-        image_model_edit=["test/image-edit-model"],
-        image_backend="openai",
-        image_api_version="2024-02-01",
+        image_backends={
+            "openai": ImageBackend(
+                name="openai",
+                api_url="https://image.example.com/v1",
+                api_key="test-image-key",
+                model=["test/image-model"],
+                model_edit=["test/image-edit-model"],
+                api_version="2024-02-01",
+            ),
+        },
+        image_default_backend="openai",
         video_backend="fal",
         video_api_url="https://video.example.com",
         video_api_key="test-video-key",

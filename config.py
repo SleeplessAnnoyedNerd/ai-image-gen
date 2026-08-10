@@ -60,13 +60,54 @@ def _parse_list(val) -> list[str]:
 
 
 @dataclass
+class ImageBackend:
+    name: str
+    api_url: str
+    api_key: str
+    model: list[str]         # text-to-image models; first is default
+    model_edit: list[str]    # image+prompt-to-image models; first is default
+    api_version: str         # only read by the azure backend; defaults to "2024-02-01" for all backends
+
+
+def _load_image_backends() -> tuple[dict[str, "ImageBackend"], str]:
+    """Build an ImageBackend per [image.<name>] subtable with a non-empty api_key.
+    Returns (backends dict, default_backend name)."""
+    image_section = _settings.get("image", {})
+    backends: dict[str, ImageBackend] = {}
+    for name, val in image_section.items():
+        if not isinstance(val, dict):
+            continue  # scalar keys like default_backend
+        api_key = str(val.get("api_key", "")).strip()
+        if not api_key:
+            continue  # unconfigured backend, hide from selection
+        api_url = str(val.get("api_url", "")).strip()
+        if not api_url:
+            raise EnvironmentError(f"[image.{name}] has an api_key but is missing api_url")
+        model = _parse_list(val.get("model", []))
+        model_edit = _parse_list(val.get("model_edit", []))
+        if not model or not model_edit:
+            raise EnvironmentError(f"[image.{name}] has an api_key but is missing model/model_edit")
+        backends[name] = ImageBackend(
+            name=name,
+            api_url=api_url,
+            api_key=api_key,
+            model=model,
+            model_edit=model_edit,
+            api_version=str(val.get("api_version", "2024-02-01")),
+        )
+    if not backends:
+        raise EnvironmentError("No [image.*] backend configured with an api_key")
+
+    default_backend = str(image_section.get("default_backend", ""))
+    if default_backend not in backends:
+        default_backend = next(iter(backends))
+    return backends, default_backend
+
+
+@dataclass
 class Config:
-    image_api_url: str
-    image_api_key: str
-    image_model: list[str]        # text-to-image models; first is default
-    image_model_edit: list[str]   # image+prompt-to-image models; first is default
-    image_backend: str            # "openai", "azure", "fal", or "dashscope"
-    image_api_version: str        # Azure API version (only used for azure backend)
+    image_backends: dict[str, ImageBackend]  # keyed by backend name; only backends with a non-empty api_key
+    image_default_backend: str               # key into image_backends
     video_backend: str            # "fal", "azure", or "dashscope"
     video_api_url: str
     video_api_key: str
@@ -80,13 +121,10 @@ class Config:
 
     @classmethod
     def from_settings(cls) -> "Config":
+        image_backends, image_default_backend = _load_image_backends()
         return cls(
-            image_api_url = str(_require("image", "api_url")),
-            image_api_key = str(_require("image", "api_key")),
-            image_model = _parse_list(_require("image", "model")),
-            image_model_edit = _parse_list(_require("image", "model_edit")),
-            image_backend = str(_get("image", "backend", "openai")),
-            image_api_version = str(_get("image", "api_version", "2024-02-01")),
+            image_backends = image_backends,
+            image_default_backend = image_default_backend,
             video_backend = str(_get("video", "backend", "fal")),
             video_api_url = str(_require("video", "api_url")),
             video_api_key = str(_require("video", "api_key")),
