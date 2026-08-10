@@ -131,9 +131,7 @@ import pytest
 def _dashscope_video_cfg():
     """Helper to create a Config with dashscope video backend."""
     return Config(
-        image_api_url="", image_api_key="",
-        image_model=[""], image_model_edit=[""],
-        image_backend="openai", image_api_version="",
+        image_backends={}, image_default_backend="",
         video_backend="dashscope",
         video_api_url="https://ws-c2xbh4slyhwu4ifn.ap-southeast-1.maas.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
         video_api_key="sk-test-key",
@@ -275,9 +273,7 @@ def test_dashscope_poll_canceled():
 def test_dashscope_missing_config_raises():
     """DashScope backend: raises ValueError when config is missing."""
     cfg = Config(
-        image_api_url="", image_api_key="",
-        image_model=[""], image_model_edit=[""],
-        image_backend="openai", image_api_version="",
+        image_backends={}, image_default_backend="",
         video_backend="dashscope", video_api_url="", video_api_key="",
         video_api_version="", video_azure_path="",
         video_model_image=["wan2.7-r2v"], video_model_text=["wan2.7-t2v"],
@@ -317,9 +313,7 @@ def test_dashscope_multi_image_video_media():
 def _dashscope_video_cfg_wan26():
     """Helper to create a Config with wan2.6 video model."""
     return Config(
-        image_api_url="", image_api_key="",
-        image_model=[""], image_model_edit=[""],
-        image_backend="openai", image_api_version="",
+        image_backends={}, image_default_backend="",
         video_backend="dashscope",
         video_api_url="https://ws-c2xbh4slyhwu4ifn.ap-southeast-1.maas.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
         video_api_key="sk-test-key",
