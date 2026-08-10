@@ -1,23 +1,22 @@
 # Settings reference — copy relevant sections to settings.toml
 # API keys go in .secrets.toml (see .secrets.toml.example)
+# Multiple [image.<backend>] blocks can be active at once — the app shows
+# a dropdown to pick between any backend that also has an api_key set.
 
 # ── fal.ai ──────────────────────────────────────────
-# [image]
-# backend = "fal"
+# [image.fal]
 # api_url = "https://fal.run"
 # model = ["fal-ai/flux/schnell"]
 # model_edit = ["fal-ai/gpt-image-1.5/edit"]
 
 # ── OpenAI / OpenRouter ─────────────────────────────
-# [image]
-# backend = "openai"
+# [image.openai]
 # api_url = "https://api.openai.com/v1"
 # model = ["dall-e-3"]
 # model_edit = ["dall-e-2"]
 
 # ── Azure OpenAI ────────────────────────────────────
-# [image]
-# backend = "azure"
+# [image.azure]
 # api_url = "https://<resource>.openai.azure.com/"
 # model = ["gpt-image-1.5"]
 # model_edit = ["gpt-image-1.5"]
@@ -31,8 +30,7 @@
 # azure_path = "openai/deployments/{deployment}/videos/generations"
 
 # ── DashScope (Alibaba Cloud) ───────────────────────
-# [image]
-# backend = "dashscope"
+# [image.dashscope]
 # api_url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 # model = ["wan2.7-image", "wan2.7-image-pro"]
 # model_edit = ["wan2.7-image"]

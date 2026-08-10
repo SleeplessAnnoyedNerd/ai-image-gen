@@ -3,11 +3,12 @@ secret_key = "SpayzDajoz"
 port = 5005
 
 [image]
-backend = "dashscope"
-api_url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
-model = ["wan2.6-image", "wan2.6-image-pro"]
-model_edit = ["wan2.6-image"]
-# api_version = "2024-02-01"  # only for azure backend
+default_backend = "dashscope"
+
+[image.dashscope]
+api_url = "https://token-plan.ap-southeast-1.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+model = ["wan2.7-image", "wan2.7-image-pro"]
+model_edit = ["wan2.7-image"]
 
 [video]
 backend = "dashscope"
