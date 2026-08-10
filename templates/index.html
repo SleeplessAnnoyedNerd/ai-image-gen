@@ -95,7 +95,7 @@
         }
 
         function rebuildFiles(input, grid) {
-          if (!(input && input.files)) return;
+          if (!(input && input.files)) { return; }
           var dt = new DataTransfer();
           var items = grid.querySelectorAll('div > img');
           for (var i = 0; i < items.length; i++) {
@@ -126,7 +126,7 @@
         /* ---- Event listeners ---- */
 
         input.addEventListener('change', function(e) {
-          if (!this.files || this.files.length === 0) return;
+          if (!this.files || this.files.length === 0) { return; }
           for (var i = 0; i < this.files.length; i++) {
             var f = this.files[i];
             // Skip files already shown in the grid.
