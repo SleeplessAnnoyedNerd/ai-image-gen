@@ -136,18 +136,18 @@
           this.value = '';
         });
 
-        /* Intercept htmx submit to include grid files in FormData */
+        /* Intercept htmx submit: add grid files to the request parameters.
+         * htmx 2.x ignores evt.detail.formData — it reads evt.detail.parameters
+         * (a proxy over the underlying FormData). Mutate parameters directly. */
         document.querySelector('form[hx-post]').addEventListener('htmx:configRequest', function(evt) {
-          var form = document.querySelector('form[hx-post]');
-          var fd = new FormData(form);
-          // Replace the (empty) file input with actual grid files.
-          fd.delete('images');
+          var params = evt.detail.parameters;
+          // Remove the (empty) file input entry.
+          params.delete('images');
+          // Append grid files.
           var imgs = grid.querySelectorAll('div > img');
           for (var i = 0; i < imgs.length; i++) {
-            fd.append('images', imgs[i].__file__);
+            params.append('images', imgs[i].__file__);
           }
-          evt.detail.formData = fd;
-          delete evt.detail.parameters;
         });
       })();
     </script>
