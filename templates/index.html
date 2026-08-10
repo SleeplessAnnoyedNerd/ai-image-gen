@@ -50,6 +50,7 @@
       (function() {
         var input     = document.getElementById('image-input');
         var grid      = document.getElementById('image-grid');
+        var hint      = document.getElementById('upload-max-hint');
         var MAX       = 10;
         // Prevent duplicate registrations during development.
         if (input._ready) { return; }
@@ -84,7 +85,7 @@
             card.remove();
             URL.revokeObjectURL(img.src);
             rebuildFiles(input, grid);
-            updateVisibility(input, grid, document.getElementById('upload-max-hint'), MAX);
+            updateVisibility(input, grid, hint, MAX);
           });
           card.appendChild(btn);
 
