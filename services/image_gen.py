@@ -25,19 +25,21 @@ def _mime_and_b64(img_bytes: bytes) -> str:
 def generate_image(
     cfg: Config,
     prompt: str,
-    image_bytes: bytes | None = None,
+    images: list[bytes] | None = None,
     model: str | None = None,
     model_edit: str | None = None,
 ) -> bytes:
+    images = images or []
     model = model or cfg.image_model[0]
     model_edit = model_edit or cfg.image_model_edit[0]
+    first = images[0] if images else None
     if cfg.image_backend == "fal":
-        return _generate_fal(cfg, prompt, image_bytes, model, model_edit)
+        return _generate_fal(cfg, prompt, first, model, model_edit)
     if cfg.image_backend == "azure":
-        return _generate_azure(cfg, prompt, image_bytes, model, model_edit)
+        return _generate_azure(cfg, prompt, first, model, model_edit)
     if cfg.image_backend == "dashscope":
-        return _generate_dashscope(cfg, prompt, image_bytes, model, model_edit)
-    return _generate_openai(cfg, prompt, image_bytes, model, model_edit)
+        return _generate_dashscope(cfg, prompt, images, model, model_edit)
+    return _generate_openai(cfg, prompt, first, model, model_edit)
 
 
 def _generate_azure(
@@ -62,11 +64,11 @@ def _generate_azure(
         response = client.images.generate(model=model, prompt=prompt, n=1)
     else:
         logger.info("Editing image (azure) | model={} prompt={!r}", model_edit, prompt)
-        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
-        ext = "png" if mime == "image/png" else "jpg"
+        data_uri = _mime_and_b64(image_bytes)
+        ext = "png" if data_uri.startswith("data:image/png") else "jpg"
         response = client.images.edit(
             model=model_edit,
-            image=(f"image.{ext}", io.BytesIO(image_bytes), mime),
+            image=(f"image.{ext}", io.BytesIO(image_bytes), data_uri.split(";")[0].replace("data:", "")),
             prompt=prompt,
             n=1,
         )
@@ -119,11 +121,9 @@ def _generate_fal(
     model_edit: str,
 ) -> bytes:
     if image_bytes is not None:
-        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
-        img_b64 = base64.b64encode(image_bytes).decode()
         payload: dict = {
             "prompt": prompt,
-            "image_urls": [f"data:{mime};base64,{img_b64}"],
+            "image_urls": [_mime_and_b64(image_bytes)],
         }
         active_model = model_edit
     else:
@@ -155,7 +155,7 @@ def _generate_fal(
 def _generate_dashscope(
     cfg: Config,
     prompt: str,
-    image_bytes: bytes | None,
+    images: list[bytes],
     model: str,
     model_edit: str,
 ) -> bytes:
@@ -164,14 +164,12 @@ def _generate_dashscope(
             "DashScope backend requires IMAGE_API_URL and IMAGE_API_KEY"
         )
 
-    active_model = model_edit if image_bytes is not None else model
-    url = cfg.image_api_url.rstrip("/")  # strip trailing slash to avoid double //
+    active_model = model_edit if images else model
+    url = cfg.image_api_url.rstrip("/")
 
     content = [{"text": prompt}]
-    if image_bytes is not None:
-        mime = "image/png" if image_bytes[:4] == b'\x89PNG' else "image/jpeg"
-        b64 = base64.b64encode(image_bytes).decode()
-        content.append({"image": f"data:{mime};base64,{b64}"})
+    for img_bytes in images:
+        content.append({"image": _mime_and_b64(img_bytes)})
 
     payload = {
         "model": active_model,
@@ -193,8 +191,8 @@ def _generate_dashscope(
     }
 
     logger.info(
-        "Generating image (dashscope) | model={} prompt={!r} has_image={}",
-        active_model, prompt, image_bytes is not None,
+        "Generating image (dashscope) | model={} prompt={!r} n_images={}",
+        active_model, prompt, len(images),
     )
     resp = _requests.post(url, json=payload, headers=headers)
     if not resp.ok:
