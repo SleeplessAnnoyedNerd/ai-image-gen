@@ -103,15 +103,6 @@
           input.files = dt.files;
         }
 
-        function getGridFiles(grid) {
-          var result = [];
-          var items = grid.querySelectorAll('div > img');
-          for (var i = 0; i < items.length; i++) {
-            result.push(items[i].__file__);
-          }
-          return result;
-        }
-
         function updateVisibility(input, grid, hint, maxCount) {
           var remaining = maxCount - grid.children.length;
           if (remaining <= 0) {
@@ -157,34 +148,9 @@
         }
         listenInputChanges();
 
-        /* Override submit to collect all selected images into FormData */
-        function buildFormData(form) {
-          var fd = new FormData();
-          var entries = form.elements;
-          for (var i = 0; i < entries.length; i++) {
-            var el = entries[i];
-            if (!el.name || el.disabled || el.tagName === 'FIELDSET') { continue; }
-            if (el.tagName === 'SELECT') {
-              for (var j = 0; j < el.options.length; j++) {
-                if (el.options[j].selected) { fd.append(el.name, el.options[j].value); }
-              }
-            } else if (el.type === 'file' && el.id === 'image-input') {
-              var files = getGridFiles(grid);
-              for (var j = 0; j < files.length; j++) { fd.append(el.name, files[j]); }
-            } else if (el.type !== 'button' && el.type !== 'submit') {
-              fd.append(el.name, el.value);
-            }
-          }
-          return fd;
-        }
-
-        /* Intercept form submission */
-        document.querySelector('form[hx-post]').addEventListener('htmx:configRequest', function(evt) {
-          var form = evt.detail.elt;
-          var fd = buildFormData(form);
-          delete evt.detail.parameters;
-          evt.detail.formData = fd;
-        });
+        // ponytail: Object.defineProperty on input.files (above) handles
+        // multi-file submission — htmx reads input.files via the getter
+        // and serializes the form natively. No interceptor needed.
       })();
     </script>
 
