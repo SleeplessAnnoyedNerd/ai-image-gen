@@ -22,6 +22,9 @@ from config import Config
 from translations import get_strings
 from services import job_store, image_gen, video_gen, sd_gen
 
+_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB per file
+_MAX_IMAGES = 10
+
 
 def _cache_artifact(job_id: str, data: bytes, ext: str):
     """Write artifact bytes to .cache/YYYYMMDD/YYYYMMDD-HHMMSS-{job_id}.{ext}."""
@@ -38,6 +41,7 @@ def _cache_artifact(job_id: str, data: bytes, ext: str):
 
 def create_app(cfg: Config | None = None) -> Flask:
     app = Flask(__name__)
+    app.config["MAX_CONTENT_LENGTH"] = 120 * 1024 * 1024  # 120MB total request cap
 
     if cfg is None:
         cfg = Config.from_settings()
@@ -86,12 +90,23 @@ def create_app(cfg: Config | None = None) -> Flask:
     def generate():
         output_type = request.form.get("output_type", "image")
         prompt = request.form.get("prompt", "").strip()
-        image_file = request.files.get("image")
-        image_bytes = (
-            image_file.read()
-            if image_file and image_file.filename
-            else None
-        )
+
+        # Read all uploaded files, filter empty filenames and empty/oversized files
+        raw_files = request.files.getlist("images")
+        images = []
+        for f in raw_files:
+            if not f.filename:
+                continue
+            data = f.read()
+            if len(data) == 0:
+                continue
+            if len(data) > _MAX_FILE_SIZE:
+                logger.warning("Skipping oversized file | name={} size={} bytes", f.filename, len(data))
+                continue
+            images.append(data)
+
+        if len(images) > _MAX_IMAGES:
+            abort(400)
 
         image_model       = request.form.get("image_model")       or cfg.image_model[0]
         image_model_edit  = request.form.get("image_model_edit")  or cfg.image_model_edit[0]
@@ -99,24 +114,24 @@ def create_app(cfg: Config | None = None) -> Flask:
         video_model_text  = request.form.get("video_model_text")  or cfg.video_model_text[0]
 
         job_id = job_store.create_job()
-        logger.info("Job created | job_id={} output_type={} prompt={!r}", job_id, output_type, prompt)
+        logger.info("Job created | job_id={} output_type={} prompt={!r} n_images={}", job_id, output_type, prompt, len(images))
 
         if output_type == "image":
             threading.Thread(
                 target=_run_image_job,
-                args=(cfg, job_id, prompt, image_bytes, image_model, image_model_edit),
+                args=(cfg, job_id, prompt, images, image_model, image_model_edit),
                 daemon=True,
             ).start()
         elif output_type == "sd":
             threading.Thread(
                 target=_run_sd_job,
-                args=(cfg, job_id, prompt, image_bytes),
+                args=(cfg, job_id, prompt, images),
                 daemon=True,
             ).start()
         else:
             threading.Thread(
                 target=_run_video_job,
-                args=(cfg, job_id, prompt, image_bytes, video_model_image, video_model_text),
+                args=(cfg, job_id, prompt, images, video_model_image, video_model_text),
                 daemon=True,
             ).start()
 
@@ -198,10 +213,10 @@ def create_app(cfg: Config | None = None) -> Flask:
 # Background workers                                                   #
 # ------------------------------------------------------------------ #
 
-def _run_image_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | None,
+def _run_image_job(cfg: Config, job_id: str, prompt: str, images: list[bytes],
                    model: str, model_edit: str):
     try:
-        data = image_gen.generate_image(cfg, prompt, image_bytes, model=model, model_edit=model_edit)
+        data = image_gen.generate_image(cfg, prompt, images, model=model, model_edit=model_edit)
         try:
             _cache_artifact(job_id, data, "png")
         except Exception:
@@ -213,9 +228,9 @@ def _run_image_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | N
         job_store.update_job(job_id, {"status": "error", "error": str(exc)})
 
 
-def _run_sd_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | None):
+def _run_sd_job(cfg: Config, job_id: str, prompt: str, images: list[bytes]):
     try:
-        data = sd_gen.generate_image_sd(cfg, prompt, image_bytes)
+        data = sd_gen.generate_image_sd(cfg, prompt, images)
         try:
             _cache_artifact(job_id, data, "png")
         except Exception:
@@ -227,12 +242,12 @@ def _run_sd_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | None
         job_store.update_job(job_id, {"status": "error", "error": str(exc)})
 
 
-def _run_video_job(cfg: Config, job_id: str, prompt: str, image_bytes: bytes | None,
+def _run_video_job(cfg: Config, job_id: str, prompt: str, images: list[bytes],
                    model_image: str, model_text: str):
     import time
     try:
         submit = video_gen.start_video_job(
-            cfg, prompt, image_bytes,
+            cfg, prompt, images,
             model_image=model_image, model_text=model_text,
         )
         for _ in range(300):
