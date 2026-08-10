@@ -47,7 +47,7 @@ def _start_fal(
     model_image: str,
     model_text: str,
 ) -> dict:
-    if image_bytes is not None:
+    if image_bytes:
         model = model_image
         data_uri = _mime_and_b64(image_bytes)
         payload = {
@@ -125,7 +125,7 @@ def _start_azure(
         "height": 480,
         "n_variants": 1,
     }
-    if image_bytes is not None:
+    if image_bytes:
         payload["first_frame_image"] = _mime_and_b64(image_bytes)
 
     logger.info(

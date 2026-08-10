@@ -120,7 +120,7 @@ def _generate_fal(
     model: str,
     model_edit: str,
 ) -> bytes:
-    if image_bytes is not None:
+    if image_bytes:
         payload: dict = {
             "prompt": prompt,
             "image_urls": [_mime_and_b64(image_bytes)],
