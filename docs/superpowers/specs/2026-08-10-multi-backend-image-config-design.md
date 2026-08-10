@@ -15,7 +15,7 @@ Scope: **image generation only**. `[video]` and `[sd]` are untouched — they ke
 
 ## Config Shape
 
-`[image]` becomes a container: an optional `default_backend` key plus one subtable per backend, named by engine type (`dashscope`, `fal`, `azure`, `openai`). Discovery is dynamic — `config.py` treats any dict-valued entry under `[image]` as a backend, no hardcoded backend list.
+`[image]` becomes a container: an optional `default_backend` key plus one subtable per backend, named by engine type (`dashscope`, `fal`, `azure`, `openai`). Discovery is dynamic — `config.py` treats any dict-valued entry under `[image]` as a backend, no hardcoded backend list. The subtable name doubles as the dispatch key: `generate_image()` still branches on it against the four known engine types (`fal`/`azure`/`dashscope`/else-openai), so a subtable must be named one of those four to route correctly — naming it anything else silently falls through to the OpenAI-compatible dispatch branch.
 
 ### `settings.toml`
 
@@ -46,6 +46,8 @@ api_key = "..."
 
 `_merge()` already deep-merges nested dicts recursively, so `.secrets.toml`'s `[image.dashscope].api_key` merges into the matching subtable from `settings.toml` without any loader changes.
 
+**`.secrets.toml` must only ever contain `api_key` per backend.** Because the merge now happens one level deeper (inside each `[image.<name>]` subtable, not just inside `[image]`), any other key placed in `.secrets.toml` — e.g. an `api_url` — would silently override `settings.toml`'s value for that backend, since `_merge()` can't distinguish "secret override" from "accidental duplicate". The flat pre-change format couldn't do this (secrets only ever had `api_key`).
+
 ### `settings.example.toml`
 
 Same four backend blocks it documents today (fal, OpenAI, Azure, DashScope), rewritten under `[image.<name>]` headers instead of a single commented-out `[image]`.
@@ -62,7 +64,7 @@ class ImageBackend:
     api_key: str
     model: list[str]
     model_edit: list[str]
-    api_version: str  # only used by the azure backend, "" otherwise
+    api_version: str  # only read by the azure backend; defaults to "2024-02-01" for all backends
 ```
 
 `Config` gains:
@@ -85,13 +87,16 @@ for name, val in image_section.items():
     api_key = str(val.get("api_key", "")).strip()
     if not api_key:
         continue  # unconfigured backend, hide from selection
+    api_url = str(val.get("api_url", "")).strip()
+    if not api_url:
+        raise EnvironmentError(f"[image.{name}] has an api_key but is missing api_url")
     model = _parse_list(val.get("model", []))
     model_edit = _parse_list(val.get("model_edit", []))
     if not model or not model_edit:
         raise EnvironmentError(f"[image.{name}] has an api_key but is missing model/model_edit")
     backends[name] = ImageBackend(
         name=name,
-        api_url=str(val.get("api_url", "")),
+        api_url=api_url,
         api_key=api_key,
         model=model,
         model_edit=model_edit,
@@ -136,7 +141,7 @@ def generate_image(cfg, prompt, images=None, backend=None, model=None, model_edi
 
 ## Template Changes (`templates/index.html`)
 
-Add a `Backend` `<select name="image_backend">` in the advanced panel, populated from `cfg.image_backends.keys()`, shown only when more than one backend is configured (same `| length > 1` convention already used for the model dropdowns). The per-backend model lists are embedded as JSON (`{{ image_backends | tojson }}`); a small JS snippet, mirroring the existing inline `<script>` pattern in this file, rebuilds the `image_model`/`image_model_edit` `<option>` lists on backend change and shows/hides each dropdown based on whether the selected backend has more than one model — same rule as today, just re-evaluated per backend instead of fixed at page load.
+Add an `Image Backend` `<select name="image_backend">` in the advanced panel, populated from `cfg.image_backends.keys()`, shown only when more than one backend is configured (same `| length > 1` convention already used for the model dropdowns). Label it "Image Backend", not just "Backend" — the advanced panel is shared with the video model dropdowns, and this selector has no effect on video generation. The per-backend model lists are embedded as JSON (`{{ image_backends | tojson }}`); a small JS snippet, mirroring the existing inline `<script>` pattern in this file, rebuilds the `image_model`/`image_model_edit` `<option>` lists on backend change and shows/hides each dropdown based on whether the selected backend has more than one model — same rule as today, just re-evaluated per backend instead of fixed at page load.
 
 ## What Doesn't Change
 
@@ -151,7 +156,13 @@ Add a `Backend` `<select name="image_backend">` in the advanced panel, populated
 3. Update `app.py`: `/generate` route reads/validates `image_backend`, threads it to the worker; `index()` passes the new backend dict to the template.
 4. Update `templates/index.html`: add backend `<select>`, JS to rebuild model options on change.
 5. Rewrite `settings.toml`, `settings.example.toml`, `.secrets.toml`, `.secrets.toml.example` into the nested `[image.<backend>]` shape (current live values: `[image.dashscope]` with the Token Plan URL and `wan2.7-image`/`wan2.7-image-pro` models; add a `[image.fal]` block from `settings.example.toml` if the user wants it selectable immediately).
-6. Update `tests/test_config.py`, `tests/test_image_gen.py`, `tests/test_routes.py` for the new `Config`/`generate_image()` shapes.
+6. Update `tests/test_config.py`, `tests/test_image_gen.py`, `tests/test_routes.py` for the new `Config`/`generate_image()` shapes. Explicitly cover:
+   - Backend with an `api_key` but missing `model`/`model_edit` → `EnvironmentError` at startup.
+   - Backend with an `api_key` but missing/blank `api_url` → `EnvironmentError` at startup.
+   - Backend without an `api_key` → excluded from `cfg.image_backends`.
+   - `default_backend` missing or pointing at an unconfigured backend → falls back to the first configured backend.
+   - `/generate` submits an `image_backend` not present in `cfg.image_backends` → `400`.
+   - Only one backend configured → backend `<select>` not rendered.
 7. Verify: `pytest -q` passes; manually load the app, confirm the backend dropdown appears (once ≥2 backends have keys) and switching it re-populates the model dropdown.
 
 ## Edge Cases Handled
