@@ -117,10 +117,12 @@
         /* ---- Event listeners ---- */
 
         input.addEventListener('change', function(e) {
-          if (!this.files || this.files.length === 0) { return; }
-          for (var i = 0; i < this.files.length; i++) {
+          // Read native FileList BEFORE any sync (no getter override active).
+          var selected = this.files;
+          if (!selected || (selected.length === 0)) { return; }
+          for (var i = 0; i < selected.length; i++) {
             if ((grid.children.length) >= MAX) { break; }
-            var f = this.files[i];
+            var f = selected[i];
             // Skip files already shown in the grid.
             var found = false;
             grid.querySelectorAll('div > img').forEach(function(el) {
@@ -129,28 +131,17 @@
             if (found) { continue; }
             addPreview(f, grid.children.length);
           }
+          rebuildFiles(input, grid);
           updateVisibility(input, grid, hint, MAX);
           this.value = '';
         });
 
-        /* Keep input.files in sync after manual DOM changes outside the change handler */
-        function listenInputChanges() {
-          Object.defineProperty(input, 'files', {
-            get: function() {
-              var dt = new DataTransfer();
-              var imgs = grid.querySelectorAll('div > img');
-              for (var i = 0; i < imgs.length; i++) {
-                dt.items.add(imgs[i].__file__);
-              }
-              return dt.files;
-            }
-          });
-        }
-        listenInputChanges();
-
-        // ponytail: Object.defineProperty on input.files (above) handles
-        // multi-file submission — htmx reads input.files via the getter
-        // and serializes the form natively. No interceptor needed.
+        // Sync input.files from grid before htmx reads the form.
+        // ponytail: htmx fires configRequest before building FormData,
+        // so this ensures input.files reflects the current grid state.
+        document.querySelector('form[hx-post]').addEventListener('htmx:configRequest', function() {
+          rebuildFiles(input, grid);
+        });
       })();
     </script>
 
