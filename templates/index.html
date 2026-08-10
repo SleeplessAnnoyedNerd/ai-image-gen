@@ -136,11 +136,18 @@
           this.value = '';
         });
 
-        // Sync input.files from grid before htmx reads the form.
-        // ponytail: htmx fires configRequest before building FormData,
-        // so this ensures input.files reflects the current grid state.
-        document.querySelector('form[hx-post]').addEventListener('htmx:configRequest', function() {
-          rebuildFiles(input, grid);
+        /* Intercept htmx submit to include grid files in FormData */
+        document.querySelector('form[hx-post]').addEventListener('htmx:configRequest', function(evt) {
+          var form = document.querySelector('form[hx-post]');
+          var fd = new FormData(form);
+          // Replace the (empty) file input with actual grid files.
+          fd.delete('images');
+          var imgs = grid.querySelectorAll('div > img');
+          for (var i = 0; i < imgs.length; i++) {
+            fd.append('images', imgs[i].__file__);
+          }
+          evt.detail.formData = fd;
+          delete evt.detail.parameters;
         });
       })();
     </script>
