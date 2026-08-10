@@ -69,6 +69,7 @@
           img.alt         = file.name;
           img.className   = 'w-full h-full object-cover';
           img.draggable   = false;
+          img.__file__    = file;
           card.appendChild(img);
 
           var btn = document.createElement('button');
