@@ -1,6 +1,7 @@
 import pytest
 from app import create_app
 from config import Config, ImageBackend
+from services import prompt_store
 
 
 @pytest.fixture
@@ -40,3 +41,9 @@ def app(cfg):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_prompt_db(tmp_path, monkeypatch):
+    """Every test gets a fresh, throwaway prompt DB outside the repo."""
+    monkeypatch.setattr(prompt_store, "_DB_PATH", str(tmp_path / "prompts.db"))
