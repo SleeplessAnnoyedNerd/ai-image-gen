@@ -2,6 +2,7 @@ _STRINGS = {
     "en": {
         "title": "AI Image & Video Generator",
         "prompt_label": "Prompt",
+        "prompt_history": "Recent prompts",
         "upload_label": "Upload reference images (optional)",
         "upload_max": "Maximum 10 images",
         "generate_image": "Generate Image",
@@ -27,6 +28,7 @@ _STRINGS = {
     "de": {
         "title": "KI-Bild- & Videogenerator",
         "prompt_label": "Beschreibung",
+        "prompt_history": "Zuletzt verwendet",
         "upload_label": "Referenzbilder hochladen (optional)",
         "upload_max": "Maximal 10 Bilder",
         "generate_image": "Bild generieren",

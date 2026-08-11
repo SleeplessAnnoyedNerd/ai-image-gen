@@ -19,16 +19,94 @@
         hx-encoding="multipart/form-data"
         class="space-y-6">
 
+    <!-- Recent prompts -->
+    {% if prompts %}
+    <div>
+      <label class="block text-sm font-medium text-gray-600 mb-1">
+        {{ t.prompt_history }}
+      </label>
+      <select id="prompt-history"
+              class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
+                     focus:outline-none focus:ring-2 focus:ring-blue-400">
+        <option value="">— {{ t.prompt_history }} —</option>
+        {% for p in prompts %}
+        <option value="{{ p }}">{{ p[:40] | replace('\n', ' ') }}{% if p | length > 40 %}…{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+
     <!-- Prompt -->
     <div>
       <label class="block text-lg font-semibold text-gray-700 mb-2">
         {{ t.prompt_label }}
       </label>
-      <textarea name="prompt" rows="3" required
+      <textarea name="prompt" rows="3" required maxlength="2000"
                 class="w-full border border-gray-300 rounded-xl p-3 text-lg
                        focus:outline-none focus:ring-2 focus:ring-blue-400"
                 placeholder="Describe what you want to create…"></textarea>
     </div>
+
+    <script>
+      (function() {
+        var sel = document.getElementById('prompt-history');
+        var ta  = document.querySelector('textarea[name="prompt"]');
+        var MAX = 25;
+
+        function label(text) {
+          var flat = text.replace(/\n/g, ' ');
+          if (flat.length > 40) {
+            return (flat.slice(0, 40) + '…');
+          } else {
+            return flat;
+          }
+        }
+
+        if (sel) {
+          sel.addEventListener('change', function() {
+            if (this.value) {
+              ta.value = this.value;
+            }
+            // Reset to the placeholder so picking the same entry twice works.
+            this.selectedIndex = 0;
+          });
+        }
+
+        /* Keep the dropdown current: the form submits via htmx, so the page
+         * never reloads and the server-rendered list would otherwise go stale.
+         * A second htmx:configRequest listener is safe — listeners fire in
+         * registration order and this one touches only the select, while the
+         * upload handler below touches only evt.detail.parameters. */
+        document.querySelector('form[hx-post]').addEventListener('htmx:configRequest', function() {
+          // The select is absent until the first prompt is stored.
+          if (!sel) {
+            return;
+          }
+          var p = ta.value.trim();
+          if (!p) {
+            return;
+          }
+          // Drop any existing entry with the same text. Compare values directly
+          // rather than building an attribute selector — CSS.escape escapes CSS
+          // identifiers, not quoted selector strings, so a prompt containing a
+          // double quote would break querySelector.
+          for (var i = (sel.options.length - 1); i >= 1; i--) {
+            if (sel.options[i].value === p) {
+              sel.remove(i);
+            }
+          }
+          var opt = document.createElement('option');
+          opt.value       = p;
+          opt.textContent = label(p);
+          // options[1] is undefined when only the placeholder remains;
+          // insertBefore(node, null) appends, which is what we want.
+          sel.insertBefore(opt, (sel.options[1] || null));
+          while (sel.options.length > (MAX + 1)) {
+            sel.remove(sel.options.length - 1);
+          }
+        });
+      })();
+    </script>
 
     <!-- Image upload -->
     <div>

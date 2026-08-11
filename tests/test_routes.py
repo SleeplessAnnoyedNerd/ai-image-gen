@@ -368,3 +368,40 @@ def test_generate_does_not_record_blank_prompt(client):
         })
 
     assert prompt_store.recent() == []
+
+
+def test_index_hides_history_select_when_empty(client):
+    resp = client.get("/")
+    assert b'id="prompt-history"' not in resp.data
+
+
+def test_index_shows_history_select_when_populated(client):
+    from services import prompt_store
+
+    prompt_store.add("a previously used prompt")
+    resp = client.get("/")
+    assert b'id="prompt-history"' in resp.data
+    assert b"a previously used prompt" in resp.data
+
+
+def test_index_trims_long_history_labels(client):
+    from services import prompt_store
+
+    long_prompt = "z" * 100
+    prompt_store.add(long_prompt)
+    body = client.get("/").data.decode("utf-8")
+
+    # Full text survives in the option value...
+    assert f'value="{long_prompt}"' in body
+    # ...but the visible label is trimmed to 40 chars plus an ellipsis.
+    assert f'>{"z" * 40}…<' in body
+    assert f'>{"z" * 41}' not in body
+
+
+def test_index_escapes_history_entries(client):
+    from services import prompt_store
+
+    prompt_store.add('<script>alert("x")</script>')
+    body = client.get("/").data.decode("utf-8")
+    assert "<script>alert" not in body
+    assert "&lt;script&gt;" in body
