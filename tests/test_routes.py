@@ -343,7 +343,10 @@ def test_index_shows_backend_select_with_multiple_backends():
 def test_generate_records_prompt_in_history(client):
     from services import prompt_store
 
-    with patch("app.image_gen.generate_image", return_value=b"png-bytes"):
+    with patch("app.image_gen.generate_image", return_value=b"png-bytes"), \
+         patch("app.threading.Thread") as mock_thread:
+        mock_thread.side_effect = lambda target, args, daemon: \
+            type("T", (), {"start": lambda self: target(*args)})()
         client.post("/generate", data={
             "output_type": "image",
             "prompt": "a lighthouse at dusk",
@@ -370,7 +373,10 @@ def test_generate_records_prompt_even_when_request_is_rejected(client):
 def test_generate_does_not_record_blank_prompt(client):
     from services import prompt_store
 
-    with patch("app.image_gen.generate_image", return_value=b"png-bytes"):
+    with patch("app.image_gen.generate_image", return_value=b"png-bytes"), \
+         patch("app.threading.Thread") as mock_thread:
+        mock_thread.side_effect = lambda target, args, daemon: \
+            type("T", (), {"start": lambda self: target(*args)})()
         client.post("/generate", data={
             "output_type": "image",
             "prompt": "   ",
@@ -473,15 +479,15 @@ def test_generate_does_not_write_into_the_project_root(client):
     background thread could otherwise still be in flight when the assertions
     run, and the canary would pass on a race rather than on correctness.
     """
-    import config
+    import app
 
-    root = config._BASE_DIR
+    root = app._DATA_DIR
     cache_dir = root / ".cache"
     created_cache_dir = (not cache_dir.exists())
     cache_dir.mkdir(exist_ok=True)
     canary = cache_dir / "CANARY-leak-test"
     canary.write_text("planted by the leak canary test")
-    entries_before = set(cache_dir.iterdir())
+    entries_before = set(cache_dir.rglob("*"))
     db_existed = (root / "prompts.db").exists()
 
     try:
@@ -496,7 +502,7 @@ def test_generate_does_not_write_into_the_project_root(client):
         client.get("/")
 
         assert canary.exists(), "the suite deleted files from the real .cache/"
-        assert set(cache_dir.iterdir()) == entries_before, \
+        assert set(cache_dir.rglob("*")) == entries_before, \
             "the suite wrote artifacts into the real .cache/"
         assert (root / "prompts.db").exists() == db_existed, \
             "the suite created a prompts.db in the project root"

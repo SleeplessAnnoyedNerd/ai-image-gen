@@ -46,8 +46,11 @@ def client(app):
 def _isolated_cwd(tmp_path, monkeypatch):
     """Every test writes into a throwaway directory.
 
-    The app resolves .cache/, logs/ and prompts.db against the working
-    directory, so this one fixture isolates all of them — including writes
-    added later that nobody thought to guard individually.
+    The app resolves .cache/ and prompts.db against the working directory,
+    so this one fixture isolates both — including writes added later that
+    nobody thought to guard individually. It does NOT isolate logs/: loguru
+    opens its file sink once at import time and keeps that handle for the
+    life of the process, so test runs append to the real logs/ regardless
+    of any later chdir.
     """
     monkeypatch.chdir(tmp_path)
