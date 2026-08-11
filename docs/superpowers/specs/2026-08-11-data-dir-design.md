@@ -63,16 +63,18 @@ depends on the working directory.
 def resolve_data_dir() -> Path:
     # (_BASE_DIR / value).resolve() — an absolute configured value wins,
     # which is how pathlib joins already behave.
-    # mkdir(parents=True, exist_ok=True) so chdir cannot fail on first run.
 ```
 
-Reads `[paths] data_dir`, defaulting to `"."`.
+Reads `[paths] data_dir`, defaulting to `"."`. Pure: it only resolves a path,
+it does not touch the filesystem — see `test_resolve_data_dir_creates_nothing`.
 
 ### `app.py`
 
 The chdir goes at the **very top of the module**, above the existing
 `logger.add(f"logs/app-{_port}.log", …)` — otherwise the log handler opens
-against the old working directory and stays there for the process's life.
+against the old working directory and stays there for the process's life. The
+caller creates the directory (`_DATA_DIR.mkdir(parents=True, exist_ok=True)`)
+immediately before the chdir, so chdir cannot fail on first run.
 
 That makes it an import-time side effect. This is deliberate and matches what
 the module already does (the logger call is import-time too). It also means a
@@ -118,16 +120,17 @@ This **replaces** three existing fixtures, which are deleted:
 Net effect is less test code than today, not more, and one mechanism instead of
 three.
 
-**One test must change before `_no_artifact_writes` can go.** A chdir only
-protects code running inside the test. `test_generate_image_job_starts` and
-`test_generate_dashscope_image` start a *real* daemon thread — unlike their
-neighbours, they do not patch `threading.Thread` to run synchronously. If such
-a thread reaches `_cache_artifact` after the test returns and
-`monkeypatch.chdir` has restored the original working directory, the write
-lands in the real `.cache/`. The window is small but real, and it is exactly
-the failure mode this whole spec exists to eliminate.
+**Four tests must change before `_no_artifact_writes` can go.** A chdir only
+protects code running inside the test. `test_generate_image_job_starts`,
+`test_generate_dashscope_image`, `test_generate_records_prompt_in_history` and
+`test_generate_does_not_record_blank_prompt` start a *real* daemon thread —
+unlike their neighbours, they do not patch `threading.Thread` to run
+synchronously. If such a thread reaches `_cache_artifact` after the test
+returns and `monkeypatch.chdir` has restored the original working directory,
+the write lands in the real `.cache/`. The window is small but real, and it is
+exactly the failure mode this whole spec exists to eliminate.
 
-Fix both tests to patch `threading.Thread` the way the surrounding tests
+Fix all four tests to patch `threading.Thread` the way the surrounding tests
 already do, so the job body runs synchronously inside the chdir. Do this in the
 same task that deletes the fixture, not after.
 
@@ -140,12 +143,13 @@ same task that deletes the fixture, not after.
 - `tests/test_cache_artifact.py` — keeps its existing assertions, which now
   pass by virtue of the conftest fixture rather than its own.
 - **A leak canary in `tests/test_routes.py`**, as a test rather than a manual
-  check: plant a file under `config._BASE_DIR / ".cache"`, exercise `/generate`
+  check: plant a file under `app._DATA_DIR / ".cache"`, exercise `/generate`
   and `GET /`, then assert the planted file still exists and that the project
   root gained no `prompts.db` and no new `.cache` entries. It must read
-  `config._BASE_DIR` rather than a relative path, since the test's own working
-  directory is `tmp_path`. This is the assertion whose absence let the original
-  bug survive.
+  `app._DATA_DIR` rather than a relative path, since the test's own working
+  directory is `tmp_path` — and rather than `config._BASE_DIR`, which is wrong
+  for any non-default `data_dir`. This is the assertion whose absence let the
+  original bug survive.
   - The canary **must patch `threading.Thread` to run synchronously**, as the
     surrounding tests do. Otherwise the artifact write is still in flight when
     the assertion runs and the canary passes on a race rather than on

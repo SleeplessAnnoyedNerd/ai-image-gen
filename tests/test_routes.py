@@ -485,10 +485,16 @@ def test_generate_does_not_write_into_the_project_root(client):
     cache_dir = root / ".cache"
     created_cache_dir = (not cache_dir.exists())
     cache_dir.mkdir(exist_ok=True)
+    # This plants a real file in the real data directory, outside any test
+    # fixture's isolation, to prove the app under test can't touch it. If
+    # the process is hard-killed between here and the `finally` below,
+    # CANARY-leak-test is left behind in the real .cache/ and must be
+    # removed by hand.
     canary = cache_dir / "CANARY-leak-test"
     canary.write_text("planted by the leak canary test")
     entries_before = set(cache_dir.rglob("*"))
-    db_existed = (root / "prompts.db").exists()
+    db_path = (root / "prompts.db")
+    db_before = db_path.read_bytes() if db_path.exists() else None
 
     try:
         with patch("app.image_gen.generate_image", return_value=b"png-bytes"), \
@@ -503,9 +509,10 @@ def test_generate_does_not_write_into_the_project_root(client):
 
         assert canary.exists(), "the suite deleted files from the real .cache/"
         assert set(cache_dir.rglob("*")) == entries_before, \
-            "the suite wrote artifacts into the real .cache/"
-        assert (root / "prompts.db").exists() == db_existed, \
-            "the suite created a prompts.db in the project root"
+            "the real .cache/ changed during the test — a leak, or the app running concurrently?"
+        db_after = db_path.read_bytes() if db_path.exists() else None
+        assert db_after == db_before, \
+            "the suite wrote into the project root's prompts.db"
     finally:
         canary.unlink(missing_ok=True)
         if (created_cache_dir and cache_dir.exists() and (not any(cache_dir.iterdir()))):

@@ -62,14 +62,13 @@ def browser():
 def server(cfg):
     """The real app on a background thread, with generation stubbed out.
 
-    Patching `_cache_artifact` matters: a successful job would otherwise write
-    into the repo's .cache/ directory.
+    Runs inside the autouse `_isolated_cwd` fixture's chdir, so any artifact
+    writes from a successful job land in the test's tmp_path, not the repo.
     """
     port = _free_port()
     srv = make_server("127.0.0.1", port, create_app(cfg), threaded=True)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
-    with patch("app.image_gen.generate_image", return_value=b"\x89PNG\r\n\x1a\n"), \
-         patch("app._cache_artifact"):
+    with patch("app.image_gen.generate_image", return_value=b"\x89PNG\r\n\x1a\n"):
         thread.start()
         yield f"http://127.0.0.1:{port}"
         srv.shutdown()
