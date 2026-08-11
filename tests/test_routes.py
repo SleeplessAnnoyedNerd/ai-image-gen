@@ -383,6 +383,12 @@ def test_index_shows_history_select_when_populated(client):
     assert b'id="prompt-history"' in resp.data
     assert b"a previously used prompt" in resp.data
 
+    # The select must never be serialised into the form POST.
+    body = resp.data.decode("utf-8")
+    tag_start = body.index('<select id="prompt-history"')
+    tag_end = body.index(">", tag_start)
+    assert "name=" not in body[tag_start:tag_end]
+
 
 def test_index_trims_long_history_labels(client):
     from services import prompt_store
@@ -405,3 +411,11 @@ def test_index_escapes_history_entries(client):
     body = client.get("/").data.decode("utf-8")
     assert "<script>alert" not in body
     assert "&lt;script&gt;" in body
+
+
+def test_index_escapes_quote_in_history_entry(client):
+    from services import prompt_store
+
+    prompt_store.add('a " onmouseover="alert(1)')
+    body = client.get("/").data.decode("utf-8")
+    assert 'onmouseover="' not in body
