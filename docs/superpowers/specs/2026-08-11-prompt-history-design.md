@@ -78,31 +78,51 @@ Notes:
 
 ### `templates/index.html`
 
-A `<select>` directly above the prompt textarea, wrapped in `{% if prompts %}`
-so it is absent on a fresh install.
+A `<select>` directly above the prompt textarea, inside a wrapper `<div>` that
+always renders and carries `hidden` when there is no history yet.
 
+- The wrapper **must not** be conditionally rendered. An earlier draft wrapped
+  the whole block in `{% if prompts %}` and had the JS bail on a `null` select.
+  Both guards were individually correct, and together they made the feature
+  invisible for a whole session: a first-time user submits a prompt, the JS
+  bails because the select does not exist, and the page never reloads — so no
+  dropdown appears until a manual refresh. Caught in the final review; ruled by
+  the repo owner on 2026-08-11.
 - First option is an empty-valued placeholder (`— recent prompts —`).
 - Labels trimmed server-side: `{{ p[:40] | replace('\n', ' ') }}`, with a
   trailing `…` when `p | length > 40`. The full text lives in the option's
   `value`, so nothing is lost. Jinja autoescaping covers both the `value`
   attribute and the label text — no manual escaping needed.
-- `change`: if the value is non-empty, copy it into the textarea. A separate
-  `blur` listener resets the select back to the placeholder once focus leaves,
-  so picking the same entry twice still works.
+- `change`: if the value is non-empty, copy it into the textarea via
+  `ta.focus()` + `ta.setRangeText(...)` rather than assigning `ta.value`, so the
+  replacement lands on the textarea's native undo stack. **Capture `this.value`
+  into a local first** — `ta.focus()` synchronously blurs the select, and the
+  `blur` listener below resets `selectedIndex` to 0, so a later read of
+  `this.value` returns the placeholder's empty string and would wipe the field.
+  - Undo recovery is reliable in Firefox. Chrome historically does not record
+    programmatic edits on the undo stack, so Ctrl+Z may not restore there.
+- A separate `blur` listener resets the select back to the placeholder once
+  focus leaves, so picking the same entry twice still works.
   - The reset **must not** live in the `change` handler. A focused-but-closed
     `<select>` fires `change` on every arrow-key press, so an immediate reset
     snaps the index back to 0 each time and makes entries 2-25 unreachable by
     keyboard. Caught in review; ruled by the repo owner on 2026-08-11.
+  - Known residual: because `change` now calls `ta.focus()`, arrowing a *closed*
+    select reaches only the most recent entry — the first press fills the
+    textarea and moves focus away. Opening the listbox (click, Alt+Down, Enter)
+    and committing a choice fires `change` once and reaches all 25. Accepted.
 - `maxlength="2000"` on the textarea, matching `prompt_store._MAX_LEN`.
 - Client-side prepend hooks the **existing** `htmx:configRequest` listener in
   this file: on submit, remove any option whose value equals the prompt, insert
   a fresh option at index 1 (just after the placeholder), and trim the list back
-  to 26 options.
-  - **Guard first:** the select is absent until the first prompt is stored, so
-    the handler must bail on a `null` lookup or it throws on the very submit
-    that creates the history.
-  - It also bails when `ta.value.trim()` is empty, matching `add()`'s no-op on
+  to 26 options, then unhides the wrapper — the first inserted option is the
+  signal that there is now something to show.
+  - It bails when `ta.value.trim()` is empty, matching `add()`'s no-op on
     whitespace-only input.
+  - Option values are compared with a loop, **not** `querySelector` +
+    `CSS.escape` — `CSS.escape` escapes CSS identifiers, not quoted
+    attribute-selector strings, so a prompt containing `"` would break the
+    selector.
   - `ponytail:` if the server then rejects the request with `abort(400)`, the
     dropdown shows an entry that was never stored. Self-corrects on reload.
     Add an OOB refresh only if that ever actually bites.
