@@ -18,7 +18,8 @@
 - **DB path:** `prompts.db`, relative to the project root, matching the existing relative `.cache/` and `logs/` dirs.
 - **`_MAX_LEN = 2000`** — server-side truncation cap, mirrored as `maxlength="2000"` on the textarea.
 - **History window: 25 prompts**, labels trimmed to 40 characters plus an ellipsis.
-- Run the full suite with `source venv/bin/activate` first. Baseline before starting: **97 passing**.
+- **Always invoke pytest as `python -m pytest`, never bare `pytest`.** This repo has no pytest config and no root `conftest.py`, so only `python -m pytest` puts the project root on `sys.path`. Bare `pytest` fails at collection with `ModuleNotFoundError: No module named 'app'`. Prefix every run with `source venv/bin/activate &&`.
+- Baseline before starting: **97 passing** (verified in this worktree).
 
 ## File Structure
 
@@ -132,7 +133,7 @@ def test_recent_on_empty_db_returns_empty_list():
 Run:
 
 ```bash
-source venv/bin/activate && pytest tests/test_prompt_store.py -v
+source venv/bin/activate && python -m pytest tests/test_prompt_store.py -v
 ```
 
 Expected: collection error — `ImportError: cannot import name 'prompt_store' from 'services'`. The `conftest.py` import fails too, which is expected at this point.
@@ -207,7 +208,7 @@ Notes for the implementer:
 Run:
 
 ```bash
-source venv/bin/activate && pytest tests/test_prompt_store.py -v
+source venv/bin/activate && python -m pytest tests/test_prompt_store.py -v
 ```
 
 Expected: 7 passed.
@@ -217,7 +218,7 @@ Expected: 7 passed.
 Run:
 
 ```bash
-source venv/bin/activate && pytest -q
+source venv/bin/activate && python -m pytest -q
 ```
 
 Expected: 104 passed (97 baseline + 7 new). Confirm no `prompts.db` appeared in the repo root:
@@ -295,7 +296,7 @@ def test_generate_does_not_record_blank_prompt(client):
 Run:
 
 ```bash
-source venv/bin/activate && pytest tests/test_routes.py -k "history or record" -v
+source venv/bin/activate && python -m pytest tests/test_routes.py -k "history or record" -v
 ```
 
 Expected: 3 failures — `assert 'a lighthouse at dusk' in []`, and similar. Nothing is being recorded yet.
@@ -346,7 +347,7 @@ In `app.py`, in `index()`, add one keyword argument to the `render_template` cal
 Run:
 
 ```bash
-source venv/bin/activate && pytest tests/test_routes.py -v
+source venv/bin/activate && python -m pytest tests/test_routes.py -v
 ```
 
 Expected: all pass, including the 3 new ones. The template ignores `prompts` for now — that is Task 3.
@@ -356,7 +357,7 @@ Expected: all pass, including the 3 new ones. The template ignores `prompts` for
 Run:
 
 ```bash
-source venv/bin/activate && pytest -q
+source venv/bin/activate && python -m pytest -q
 ```
 
 Expected: 107 passed.
@@ -428,7 +429,7 @@ def test_index_escapes_history_entries(client):
 Run:
 
 ```bash
-source venv/bin/activate && pytest tests/test_routes.py -k "history or trims or escapes" -v
+source venv/bin/activate && python -m pytest tests/test_routes.py -k "history or trims or escapes" -v
 ```
 
 Expected: `test_index_hides_history_select_when_empty` passes trivially (nothing is rendered yet); the other three fail because `id="prompt-history"` is absent from the response.
@@ -579,7 +580,7 @@ Notes for the implementer:
 Run:
 
 ```bash
-source venv/bin/activate && pytest tests/test_routes.py -v
+source venv/bin/activate && python -m pytest tests/test_routes.py -v
 ```
 
 Expected: all pass, including the 4 new ones.
@@ -589,7 +590,7 @@ Expected: all pass, including the 4 new ones.
 Run:
 
 ```bash
-source venv/bin/activate && pytest -q
+source venv/bin/activate && python -m pytest -q
 ```
 
 Expected: 111 passed.
@@ -628,7 +629,7 @@ git commit -m "feat: add recent-prompts dropdown above the prompt field"
 After all three tasks:
 
 ```bash
-source venv/bin/activate && pytest -q
+source venv/bin/activate && python -m pytest -q
 ```
 
 Expected: **111 passed**.
