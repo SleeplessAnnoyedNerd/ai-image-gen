@@ -1,4 +1,6 @@
 import pytest
+import config
+from pathlib import Path
 from config import Config, _parse_list, _load_toml, _merge, _require, _get
 
 
@@ -399,3 +401,38 @@ def test_from_settings_real_toml_files(tmp_path, monkeypatch):
     assert cfg.image_backends["fal"].model == ["model-a", "model-b"]
     assert cfg.image_default_backend == "fal"
     assert cfg.secret_key == "test-secret"
+
+
+# --- unit tests for resolve_data_dir ---
+
+def test_resolve_data_dir_defaults_to_project_root(monkeypatch):
+    monkeypatch.setattr(config, "_settings", {})
+    assert config.resolve_data_dir() == config._BASE_DIR
+
+
+def test_resolve_data_dir_treats_dot_as_project_root(monkeypatch):
+    monkeypatch.setattr(config, "_settings", {"paths": {"data_dir": "."}})
+    assert config.resolve_data_dir() == config._BASE_DIR
+
+
+def test_resolve_data_dir_relative_anchors_to_project_root(monkeypatch):
+    monkeypatch.setattr(config, "_settings", {"paths": {"data_dir": "vardata"}})
+    assert config.resolve_data_dir() == (config._BASE_DIR / "vardata")
+
+
+def test_resolve_data_dir_absolute_wins(monkeypatch, tmp_path):
+    target = tmp_path / "elsewhere"
+    monkeypatch.setattr(config, "_settings", {"paths": {"data_dir": str(target)}})
+    assert config.resolve_data_dir() == target
+
+
+def test_resolve_data_dir_blank_falls_back_to_project_root(monkeypatch):
+    monkeypatch.setattr(config, "_settings", {"paths": {"data_dir": "   "}})
+    assert config.resolve_data_dir() == config._BASE_DIR
+
+
+def test_resolve_data_dir_creates_nothing(monkeypatch):
+    """It is a pure computation — the mkdir belongs to the caller."""
+    monkeypatch.setattr(config, "_settings", {"paths": {"data_dir": "should-not-appear"}})
+    result = config.resolve_data_dir()
+    assert not result.exists()

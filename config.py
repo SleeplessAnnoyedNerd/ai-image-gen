@@ -139,3 +139,16 @@ class Config:
             sd_api_url = str(_get("sd", "api_url", "")),
             sd_model = str(_get("sd", "model", "")),
         )
+
+
+def resolve_data_dir() -> Path:
+    """Absolute directory for everything the app writes.
+
+    Anchored to the project root the same way the settings files are, so the
+    app reads and writes the same place no matter where it was launched from.
+    Pure: the caller creates the directory.
+    """
+    configured = str(_get("paths", "data_dir", ".")).strip()
+    if (not configured):
+        configured = "."
+    return (_BASE_DIR / configured).resolve()
