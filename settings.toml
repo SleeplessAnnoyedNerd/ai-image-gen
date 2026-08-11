@@ -10,6 +10,11 @@ api_url = "https://token-plan.ap-southeast-1.maas.aliyuncs.com/api/v1/services/a
 model = ["wan2.7-image", "wan2.7-image-pro"]
 model_edit = ["wan2.7-image"]
 
+[image.fal]
+api_url = "https://fal.run"
+model = ["fal-ai/flux/schnell"]
+model_edit = ["fal-ai/gpt-image-1.5/edit", "fal-ai/flux-2/klein/9b/base/edit/lora"]
+
 [video]
 backend = "dashscope"
 api_url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
