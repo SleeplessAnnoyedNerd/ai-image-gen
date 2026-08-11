@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+
 import pytest
 import config
 from config import Config, _parse_list, _load_toml, _merge, _require, _get
@@ -435,3 +439,31 @@ def test_resolve_data_dir_creates_nothing(monkeypatch):
     monkeypatch.setattr(config, "_settings", {"paths": {"data_dir": "should-not-appear"}})
     result = config.resolve_data_dir()
     assert not result.exists()
+
+
+# --- the app anchors its working directory at import ---
+
+def test_app_exposes_the_resolved_data_dir():
+    import app
+    import config
+    assert app._DATA_DIR == config.resolve_data_dir()
+
+
+def test_importing_app_chdirs_to_the_data_dir(tmp_path):
+    """The chdir is an import-time side effect, so it needs a fresh process.
+
+    Launching with cwd=tmp_path proves the chdir actually moved the process,
+    rather than the test passing because pytest already ran from the root.
+    """
+    import config
+
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "import os, app, config; print(os.getcwd() == str(config.resolve_data_dir()))"],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(config._BASE_DIR)},
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "True", (result.stdout, result.stderr)

@@ -3,6 +3,12 @@
 # Multiple [image.<backend>] blocks can be active at once — the app shows
 # a dropdown to pick between any backend that also has an api_key set.
 
+[paths]
+# Everything the app writes — logs/, .cache/, prompts.db — lives here.
+# Relative values are resolved against the project root, so the app writes
+# to the same place no matter where it is launched from.
+data_dir = "."
+
 # ── fal.ai ──────────────────────────────────────────
 # [image.fal]
 # api_url = "https://fal.run"

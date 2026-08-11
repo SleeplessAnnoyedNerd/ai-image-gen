@@ -5,7 +5,19 @@ from datetime import datetime
 from loguru import logger
 import requests as _requests
 
-from config import _get
+from config import _get, resolve_data_dir
+
+# Everything this app writes — logs/, .cache/, prompts.db — is a path relative
+# to the working directory, so anchoring the working directory once, here, is
+# all it takes to make them configurable together.
+#
+# This must run before the logger.add() below: loguru opens its file sink
+# immediately and keeps that handle for the life of the process, so a later
+# chdir would leave the log behind in the old directory.
+_DATA_DIR = resolve_data_dir()
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+os.chdir(_DATA_DIR)
+
 _port = str(_get("flask", "port", "5000"))
 logger.add(
     f"logs/app-{_port}.log",
