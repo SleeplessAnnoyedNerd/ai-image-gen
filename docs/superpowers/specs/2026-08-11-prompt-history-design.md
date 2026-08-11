@@ -94,13 +94,21 @@ always renders and carries `hidden` when there is no history yet.
   `value`, so nothing is lost. Jinja autoescaping covers both the `value`
   attribute and the label text — no manual escaping needed.
 - `change`: if the value is non-empty, copy it into the textarea via
-  `ta.focus()` + `ta.setRangeText(...)` rather than assigning `ta.value`, so the
-  replacement lands on the textarea's native undo stack. **Capture `this.value`
-  into a local first** — `ta.focus()` synchronously blurs the select, and the
-  `blur` listener below resets `selectedIndex` to 0, so a later read of
-  `this.value` returns the placeholder's empty string and would wipe the field.
-  - Undo recovery is reliable in Firefox. Chrome historically does not record
-    programmatic edits on the undo stack, so Ctrl+Z may not restore there.
+  `ta.focus()` + `ta.select()` + `document.execCommand('insertText', …)` rather
+  than assigning `ta.value`, so the replacement lands on the textarea's native
+  undo stack and a stray pick does not destroy in-progress text irrecoverably.
+  **Capture `this.value` into a local first** — `ta.focus()` synchronously blurs
+  the select, and the `blur` listener below resets `selectedIndex` to 0, so a
+  later read of `this.value` returns the placeholder's empty string and would
+  wipe the field.
+  - `execCommand` is deprecated but has no replacement for this, and no engine
+    plans to drop `insertText`. It is what every rich-text editor uses.
+  - **`setRangeText` does not work here** — an earlier revision used it on the
+    assumption that it was undoable. Measured in Firefox 140: after
+    `setRangeText`, Ctrl+Z restores nothing; after `execCommand('insertText')`,
+    it restores the prior text. Verified by
+    `tests/test_dropdown_browser.py::test_undo_after_picking_restores_typed_text`,
+    which fails against the `setRangeText` version.
 - A separate `blur` listener resets the select back to the placeholder once
   focus leaves, so picking the same entry twice still works.
   - The reset **must not** live in the `change` handler. A focused-but-closed
@@ -146,8 +154,20 @@ file:
 - `add("")` and `add("   ")` are no-ops.
 - A prompt longer than `_MAX_LEN` is stored truncated to `_MAX_LEN`.
 
-**`tests/test_routes.py` (1 test added)** — POST a prompt to `/generate`, then
-GET `/` and assert the prompt appears in the returned HTML.
+**`tests/test_routes.py`** — POST a prompt to `/generate`, then GET `/` and
+assert the prompt appears in the returned HTML; plus label trimming, newline
+flattening, `"`/`<` escaping, the absent `name` attribute, and the hidden/visible
+wrapper states.
+
+**`tests/test_dropdown_browser.py` (new)** — the JS has no other coverage:
+pytest alone cannot see focus/blur ordering, the native undo stack, or whether
+`change` fires on arrow keys. Drives a real headless Firefox via Selenium
+against the real app on a background thread. Marked `browser`; deselect with
+`-m "not browser"`. Skips cleanly when Firefox or the htmx CDN is unreachable.
+
+Playwright was tried first and rejected: it ships no browser builds for
+`debian11-x64`, which is what this host runs. Selenium drives the system
+Firefox and fetches its own geckodriver.
 
 ## Out of Scope
 

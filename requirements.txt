@@ -5,3 +5,4 @@ openai
 pytest-asyncio
 requests
 flask
+selenium

@@ -1,8 +1,22 @@
 import io
 import base64
+import pytest
 from unittest.mock import patch, MagicMock
 from werkzeug.datastructures import MultiDict
 from services import job_store
+
+
+@pytest.fixture(autouse=True)
+def _no_artifact_writes():
+    """Keep the suite out of the real .cache/ directory.
+
+    These tests patch generate_image but still start a real background thread,
+    which then calls the unpatched _cache_artifact and drops stub PNGs into the
+    user's actual artifact archive. test_cache_artifact.py covers the real
+    function; here it is pure side effect.
+    """
+    with patch("app._cache_artifact"):
+        yield
 
 
 def setup_function():

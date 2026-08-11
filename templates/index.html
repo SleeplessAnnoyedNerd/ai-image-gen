@@ -69,7 +69,12 @@
           var picked = this.value;
           if (picked) {
             ta.focus();
-            ta.setRangeText(picked, 0, ta.value.length, 'end');
+            ta.select();
+            // execCommand is deprecated, but it is the only way to make a
+            // programmatic edit undoable — measured in Firefox 140:
+            // setRangeText leaves no undo entry, insertText does. Losing an
+            // in-progress prompt to a stray pick should be recoverable.
+            document.execCommand('insertText', false, picked);
           }
         });
 
