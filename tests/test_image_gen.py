@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from services.image_gen import generate_image
 from config import Config, ImageBackend
+from services.image_gen import _solid_png, _generate_dummy
 
 
 FAKE_PNG = b"\x89PNG\r\n\x1a\n"
@@ -363,3 +364,68 @@ def test_non_dashscope_receives_first_image_only():
         call_kwargs = instance.images.edit.call_args.kwargs
         img_io = call_kwargs["image"]
         assert img_io.read() == b"first-img"
+
+
+# --- Dummy backend tests ---
+
+
+def _dummy_cfg():
+    """Minimal Config with only a dummy backend, for testing in isolation."""
+    return Config(
+        image_backends={
+            "dummy": ImageBackend(
+                name="dummy",
+                api_url="dummy://local",
+                api_key="dummy",
+                model=["dummy/instant"],
+                model_edit=["dummy/instant"],
+                api_version="2024-02-01",
+            ),
+        },
+        image_default_backend="dummy",
+        video_backend="fal", video_api_url="", video_api_key="",
+        video_api_version="", video_azure_path="",
+        video_model_image=[""], video_model_text=[""],
+        secret_key="test", sd_api_url="", sd_model="",
+    )
+
+
+def test_solid_png_starts_with_png_signature():
+    data = _solid_png("test")
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_solid_png_ihdr_declares_512x512():
+    import struct
+    data = _solid_png("test")
+    # IHDR: sig(8) + length(4) + tag "IHDR"(4) + width(4) + height(4)
+    width, height = struct.unpack(">II", data[16:24])
+    assert width == 512
+    assert height == 512
+
+
+def test_solid_png_deterministic():
+    """Same prompt gives identical bytes."""
+    assert _solid_png("a cat") == _solid_png("a cat")
+
+
+def test_solid_png_varies_by_prompt():
+    """Different prompts give different colours."""
+    assert _solid_png("a cat") != _solid_png("a dog")
+
+
+def test_generate_dummy_echoes_image_on_edit():
+    """When images are supplied (edit path), echo the first back."""
+    original = b"\x89PNG\r\n\x1a\nfake-png-data"
+    assert _generate_dummy("make it blue", [original]) == original
+
+
+def test_generate_dummy_makes_no_http_call():
+    """The entire point: no network, no cost."""
+    cfg = _dummy_cfg()
+    with patch("services.image_gen._requests.post") as mock_post, \
+         patch("services.image_gen._requests.get") as mock_get:
+        result = generate_image(cfg, prompt="a sunset", backend="dummy")
+    assert result[:8] == b"\x89PNG\r\n\x1a\n"
+    mock_post.assert_not_called()
+    mock_get.assert_not_called()

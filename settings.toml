@@ -21,6 +21,12 @@ api_url = "https://fal.run"
 model = ["fal-ai/flux/schnell"]
 model_edit = ["fal-ai/gpt-image-1.5/edit", "fal-ai/flux-2/klein/9b/base/edit/lora"]
 
+[image.dummy]
+api_url    = "dummy://local"
+api_key    = "dummy"
+model      = ["dummy/instant"]
+model_edit = ["dummy/instant"]
+
 [video]
 backend = "dashscope"
 api_url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"

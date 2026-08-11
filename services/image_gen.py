@@ -36,6 +36,8 @@ def generate_image(
     model = model or bc.model[0]
     model_edit = model_edit or bc.model_edit[0]
     first = images[0] if images else None
+    if backend == "dummy":
+        return _generate_dummy(prompt, images)
     if backend == "fal":
         return _generate_fal(bc, prompt, first, model, model_edit)
     if backend == "azure":
@@ -233,3 +235,42 @@ def _raise_dashscope_error(resp):
     except Exception:
         message = resp.text
     raise RuntimeError(f"DashScope error {resp.status_code}: {message}")
+
+
+# ------------------------------------------------------------------ #
+# Dummy backend — no network, no cost                                 #
+# ------------------------------------------------------------------ #
+
+def _generate_dummy(prompt: str, images: list[bytes]) -> bytes:
+    """Local placeholder generator: no network, no cost."""
+    # An edit echoes its input back, so the upload path stays verifiable.
+    if images:
+        return images[0]
+    return _solid_png(prompt)
+
+
+def _solid_png(prompt: str, size: int = 512) -> bytes:
+    """A solid-colour PNG whose colour is seeded from sha256(prompt).
+
+    Same prompt → same colour.  The PNG is hand-assembled from raw
+    zlib-compressed scanlines — no Pillow dependency.
+    """
+    import hashlib
+    import struct
+    import zlib
+
+    rgb = hashlib.sha256(prompt.encode()).digest()[:3]
+
+    # Raw scanlines: b"\x00" (filter: none) + size*RGB, repeated.
+    raw = b"".join(b"\x00" + rgb * size for _ in range(size))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+    idat = chunk(b"IDAT", zlib.compress(raw))
+    iend = chunk(b"IEND", b"")
+
+    return sig + ihdr + idat + iend
