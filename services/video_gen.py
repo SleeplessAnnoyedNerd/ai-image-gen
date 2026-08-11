@@ -1,4 +1,5 @@
 import requests
+from pathlib import Path
 from urllib.parse import urlparse
 from loguru import logger
 from config import Config
@@ -21,6 +22,8 @@ def start_video_job(
         return _start_azure(cfg, prompt, first, model_image, model_text)
     if cfg.video_backend == "dashscope":
         return _start_dashscope(cfg, prompt, images, model_image, model_text)
+    if cfg.video_backend == "dummy":
+        return _start_dummy()
     return _start_fal(cfg, prompt, first, model_image, model_text)
 
 
@@ -33,6 +36,8 @@ def poll_video_job(cfg: Config, submit: dict) -> dict:
         return _poll_azure(cfg, submit)
     if cfg.video_backend == "dashscope":
         return _poll_dashscope(cfg, submit)
+    if cfg.video_backend == "dummy":
+        return _poll_dummy(submit)
     return _poll_fal(cfg, submit)
 
 
@@ -288,3 +293,32 @@ def _poll_dashscope(cfg: Config, submit: dict) -> dict:
     else:
         # CANCELED, UNKNOWN, or any other status
         return {"status": "error", "message": f"DashScope video task status: {status}"}
+
+
+# ------------------------------------------------------------------ #
+# Dummy backend -- no network, no cost                                 #
+# ------------------------------------------------------------------ #
+
+_DUMMY_POLLS_UNTIL_DONE = 3
+
+
+def _start_dummy() -> dict:
+    """Submit a dummy video job.  The counter lives in the returned dict --
+    poll_video_job reuses it on every call (app.py:264), so no module-level
+    state, no cross-job interference."""
+    return {"dummy": True, "polls": 0}
+
+
+def _poll_dummy(submit: dict) -> dict:
+    submit["polls"] += 1
+    if submit["polls"] >= _DUMMY_POLLS_UNTIL_DONE:
+        return {"status": "done", "video_data": _dummy_video_bytes()}
+    return {"status": "pending",
+            "queue_position": (_DUMMY_POLLS_UNTIL_DONE - submit["polls"])}
+
+
+def _dummy_video_bytes() -> bytes:
+    """Read the committed MP4 asset.  Path is relative to this module's file,
+    never to the working directory -- the app chdirs at startup under the
+    data-dir design."""
+    return (Path(__file__).parent / "assets" / "dummy.mp4").read_bytes()

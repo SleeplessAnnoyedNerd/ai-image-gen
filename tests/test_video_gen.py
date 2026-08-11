@@ -367,3 +367,65 @@ def test_dashscope_video_zero_images():
     assert payload["model"] == "wan2.7-t2v"
     assert "media" not in payload["input"]
     assert "img_url" not in payload["input"]
+
+
+# --- Dummy backend tests ---
+
+
+def _dummy_video_cfg():
+    """Config with dummy video backend, isolated from the shared fixture."""
+    return Config(
+        image_backends={}, image_default_backend="",
+        video_backend="dummy",
+        video_api_url="https://unused.example.com",
+        video_api_key="unused",
+        video_api_version="", video_azure_path="",
+        video_model_image=["m"], video_model_text=["m"],
+        secret_key="test", sd_api_url="", sd_model="",
+    )
+
+
+def test_dummy_start_returns_fresh_counter():
+    cfg = _dummy_video_cfg()
+    result = start_video_job(cfg, prompt="a cat")
+    assert result == {"dummy": True, "polls": 0}
+
+
+def test_dummy_poll_sequence():
+    """Pending twice (queue positions 2 then 1), then done with video data."""
+    cfg = _dummy_video_cfg()
+    submit = start_video_job(cfg, prompt="a cat")
+
+    r1 = poll_video_job(cfg, submit)
+    assert r1 == {"status": "pending", "queue_position": 2}
+
+    r2 = poll_video_job(cfg, submit)
+    assert r2 == {"status": "pending", "queue_position": 1}
+
+    r3 = poll_video_job(cfg, submit)
+    assert r3["status"] == "done"
+    assert r3["video_data"][4:8] == b"ftyp"  # MP4 magic bytes
+
+
+def test_dummy_poll_counter_independent():
+    """Two submits do not share a poll counter."""
+    cfg = _dummy_video_cfg()
+    s1 = start_video_job(cfg, prompt="a")
+    s2 = start_video_job(cfg, prompt="b")
+
+    poll_video_job(cfg, s1)
+    poll_video_job(cfg, s1)
+
+    # s2 should still be at poll 0 -- not at poll 2
+    r = poll_video_job(cfg, s2)
+    assert r == {"status": "pending", "queue_position": 2}
+
+
+def test_dummy_poll_completes_in_exactly_three_polls():
+    cfg = _dummy_video_cfg()
+    submit = start_video_job(cfg, prompt="a bird")
+    for _ in range(2):
+        poll_video_job(cfg, submit)
+    result = poll_video_job(cfg, submit)
+    assert result["status"] == "done"
+    assert len(result["video_data"]) > 0
