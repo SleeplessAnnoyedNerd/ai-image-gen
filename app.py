@@ -1,5 +1,6 @@
 import io
 import os
+import subprocess
 import threading
 from datetime import datetime
 from loguru import logger
@@ -38,6 +39,21 @@ _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB per file
 _MAX_IMAGES = 10
 
 
+def _git_hash() -> str:
+    """Short git commit hash, or empty string if unavailable."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return ""
+
+
+_GIT_HASH = _git_hash()
+
+
 def _cache_artifact(job_id: str, data: bytes, ext: str):
     """Write artifact bytes to .cache/YYYYMMDD/YYYYMMDD-HHMMSS-{job_id}.{ext}."""
     now = datetime.now()
@@ -61,6 +77,10 @@ def create_app(cfg: Config | None = None) -> Flask:
 
     def t():
         return get_strings(session.get("lang", "en"))
+
+    @app.context_processor
+    def _inject_git_hash():
+        return {"git_hash": _GIT_HASH}
 
     # ------------------------------------------------------------------ #
     # Pages                                                                #

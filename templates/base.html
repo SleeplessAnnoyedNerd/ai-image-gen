@@ -12,12 +12,17 @@
   <!-- Header -->
   <header class="bg-white shadow-sm py-4 px-6 flex items-center justify-between">
     <h1 class="text-2xl font-bold text-gray-800">{{ t.title }}</h1>
-    <form method="post" action="/lang">
-      <button type="submit" name="lang" value="{{ t.lang_switch_target }}"
-              class="text-sm px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 font-medium">
-        {{ t.lang_switch }}
-      </button>
-    </form>
+    <div class="flex items-center gap-3">
+      {% if git_hash %}
+      <span class="text-xs text-gray-400 font-mono">{{ git_hash }}</span>
+      {% endif %}
+      <form method="post" action="/lang">
+        <button type="submit" name="lang" value="{{ t.lang_switch_target }}"
+                class="text-sm px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 font-medium">
+          {{ t.lang_switch }}
+        </button>
+      </form>
+    </div>
   </header>
 
   <main class="max-w-2xl mx-auto mt-10 px-4">
