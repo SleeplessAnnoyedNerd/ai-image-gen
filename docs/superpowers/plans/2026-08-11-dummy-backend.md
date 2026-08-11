@@ -31,7 +31,7 @@
 | `services/video_gen.py` | Modify | `_start_dummy()`, `_poll_dummy()`, `_dummy_video_bytes()`, two dispatch branches. |
 | `settings.toml`, `settings.example.toml` | Modify | `[image.dummy]` config block. |
 | `tests/test_image_gen.py` | Modify | 6 new tests for the dummy image path. |
-| `tests/test_video_gen.py` | Modify | 5 new tests for the dummy video path. |
+| `tests/test_video_gen.py` | Modify | 4 new tests for the dummy video path. |
 | `tests/test_dropdown_browser.py` | Modify | 1 new browser test with its own `dummy_server` fixture. |
 
 ---
@@ -291,7 +291,7 @@ def test_dummy_poll_sequence():
 
     r3 = poll_video_job(cfg, submit)
     assert r3["status"] == "done"
-    assert r3["video_data"][:4] == b"\x00\x00\x00"  # MP4 ftyp box
+    assert r3["video_data"][4:8] == b"ftyp"  # MP4 magic bytes
 
 
 def test_dummy_poll_counter_independent():
@@ -324,7 +324,7 @@ def test_dummy_poll_completes_in_exactly_three_polls():
 source venv/bin/activate && python -m pytest tests/test_video_gen.py -k dummy -v
 ```
 
-Expected: 4 errors — the dispatch still falls through to fal, so `_start_dummy` is not found and/or the poll receives a fal-shaped submit dict.
+Expected: 4 errors — the dispatch falls through to fal, which tries to POST to `unused.example.com`, producing `ConnectionError` (or similar). Same outcome; the tests fail.
 
 - [ ] **Step 4: Add `pathlib` import**
 
