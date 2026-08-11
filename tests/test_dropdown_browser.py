@@ -26,6 +26,7 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 from werkzeug.serving import make_server
 
 from app import create_app
+from config import ImageBackend
 
 pytestmark = pytest.mark.browser
 
@@ -73,6 +74,31 @@ def server(cfg):
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     with patch("app.image_gen.generate_image", return_value=b"\x89PNG\r\n\x1a\n"), \
          patch("app._cache_artifact"):
+        thread.start()
+        yield f"http://127.0.0.1:{port}"
+        srv.shutdown()
+    thread.join(timeout=5)
+
+
+@pytest.fixture
+def dummy_server(cfg):
+    """Like the regular server fixture, but does NOT patch generate_image —
+    the real _generate_dummy must run for the browser to decode it.
+
+    Still patches _cache_artifact: the server runs in a real thread with
+    threaded=True, so unjoined job threads can outlive the test and write
+    after _isolated_cwd has unwound.  The docstring at :65-70 explains
+    the full reasoning.
+    """
+    cfg.image_backends["dummy"] = ImageBackend(
+        name="dummy", api_url="dummy://local", api_key="dummy",
+        model=["dummy/instant"], model_edit=["dummy/instant"],
+        api_version="2024-02-01",
+    )
+    port = _free_port()
+    srv = make_server("127.0.0.1", port, create_app(cfg), threaded=True)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    with patch("app._cache_artifact"):
         thread.start()
         yield f"http://127.0.0.1:{port}"
         srv.shutdown()
@@ -280,3 +306,49 @@ def test_arrowing_a_closed_select_reaches_only_the_most_recent_entry(page):
     page.find_element(By.ID, _SELECT_ID).send_keys(Keys.ARROW_DOWN)
     assert _textarea(page).get_attribute("value") == "newer prompt", \
         "closed-select arrowing now reaches further — update this test and the spec"
+
+
+# --------------------------------------------------------------------- #
+# Dummy backend browser test                                              #
+# --------------------------------------------------------------------- #
+
+def test_dummy_backend_renders_a_decodable_512x512_png(browser, dummy_server):
+    """The in-process suite asserts the PNG bytes start with the right
+    signature, but only a real browser can tell us whether the
+    zlib-compressed hand-assembled chunks actually decode into a visible
+    512x512 image.  """
+    browser.get(dummy_server)
+    if browser.execute_script("return typeof window.htmx") == "undefined":
+        pytest.skip("htmx CDN unreachable")
+    browser.execute_script(
+        "window.__errs = [];"
+        "window.addEventListener('error', function(e) { window.__errs.push(String(e.message)); });"
+    )
+
+    field = browser.find_element(By.CSS_SELECTOR, "textarea[name='prompt']")
+    field.clear()
+    field.send_keys("dummy backend smoke test")
+
+    # Select the dummy backend from the dropdown that appears when multiple
+    # backends are configured.  The adv-panel is hidden by CSS, so we
+    # use JavaScript to set the value directly.
+    browser.execute_script(
+        "var sel = document.getElementById('image-backend-select');"
+        "if (sel) { sel.value = 'dummy'; }"
+    )
+
+    browser.find_element(By.CSS_SELECTOR, "button[value='image']").click()
+    # Wait for the <img> to appear and decode.
+    WebDriverWait(browser, 10).until(
+        lambda d: d.execute_script(
+            "var img = document.querySelector('#result-area img');"
+            "return img && img.naturalWidth > 0;"
+        )
+    )
+
+    width = browser.execute_script(
+        "var img = document.querySelector('#result-area img');"
+        "return img ? img.naturalWidth : -1;"
+    )
+    assert width == 512, f"expected 512px wide image, got {width}"
+    assert browser.execute_script("return window.__errs || []") == []
