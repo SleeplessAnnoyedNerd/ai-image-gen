@@ -528,7 +528,10 @@ In `templates/index.html`, insert this `<script>` block immediately **after** th
             if (this.value) {
               ta.value = this.value;
             }
-            // Reset to the placeholder so picking the same entry twice works.
+          });
+
+          sel.addEventListener('blur', function() {
+            // Reset once focus leaves, so picking the same entry twice works.
             this.selectedIndex = 0;
           });
         }

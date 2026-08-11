@@ -86,8 +86,13 @@ so it is absent on a fresh install.
   trailing `…` when `p | length > 40`. The full text lives in the option's
   `value`, so nothing is lost. Jinja autoescaping covers both the `value`
   attribute and the label text — no manual escaping needed.
-- `onchange`: if the value is non-empty, copy it into the textarea, then reset
-  the select back to the placeholder — so picking the same entry twice works.
+- `change`: if the value is non-empty, copy it into the textarea. A separate
+  `blur` listener resets the select back to the placeholder once focus leaves,
+  so picking the same entry twice still works.
+  - The reset **must not** live in the `change` handler. A focused-but-closed
+    `<select>` fires `change` on every arrow-key press, so an immediate reset
+    snaps the index back to 0 each time and makes entries 2-25 unreachable by
+    keyboard. Caught in review; ruled by the repo owner on 2026-08-11.
 - `maxlength="2000"` on the textarea, matching `prompt_store._MAX_LEN`.
 - Client-side prepend hooks the **existing** `htmx:configRequest` listener in
   this file: on submit, remove any option whose value equals the prompt, insert
