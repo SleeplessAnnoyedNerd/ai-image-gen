@@ -20,7 +20,7 @@ from flask import (
 )
 from config import Config
 from translations import get_strings
-from services import job_store, image_gen, video_gen, sd_gen
+from services import job_store, image_gen, video_gen, sd_gen, prompt_store
 
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB per file
 _MAX_IMAGES = 10
@@ -68,6 +68,7 @@ def create_app(cfg: Config | None = None) -> Flask:
             image_default_backend=cfg.image_default_backend,
             video_models_image=cfg.video_model_image,
             video_models_text=cfg.video_model_text,
+            prompts=prompt_store.recent(25),
         )
 
     @app.post("/lang")
@@ -94,6 +95,7 @@ def create_app(cfg: Config | None = None) -> Flask:
     def generate():
         output_type = request.form.get("output_type", "image")
         prompt = request.form.get("prompt", "").strip()
+        prompt_store.add(prompt)
 
         # Read all uploaded files, filter empty filenames and empty/oversized files
         raw_files = request.files.getlist("images")

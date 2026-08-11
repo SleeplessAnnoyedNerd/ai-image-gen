@@ -330,3 +330,41 @@ def test_index_shows_backend_select_with_multiple_backends():
     test_client = app.test_client()
     resp = test_client.get("/")
     assert b'name="image_backend"' in resp.data
+
+
+def test_generate_records_prompt_in_history(client):
+    from services import prompt_store
+
+    with patch("app.image_gen.generate_image", return_value=b"png-bytes"):
+        client.post("/generate", data={
+            "output_type": "image",
+            "prompt": "a lighthouse at dusk",
+        })
+
+    assert "a lighthouse at dusk" in prompt_store.recent()
+
+
+def test_generate_records_prompt_even_when_request_is_rejected(client):
+    """A prompt is worth keeping even if the request 400s — it's the one
+    you want to retry."""
+    from services import prompt_store
+
+    client.post("/generate", data={
+        "output_type": "image",
+        "prompt": "rejected but memorable",
+        "image_backend": "does-not-exist",
+    })
+
+    assert "rejected but memorable" in prompt_store.recent()
+
+
+def test_generate_does_not_record_blank_prompt(client):
+    from services import prompt_store
+
+    with patch("app.image_gen.generate_image", return_value=b"png-bytes"):
+        client.post("/generate", data={
+            "output_type": "image",
+            "prompt": "   ",
+        })
+
+    assert prompt_store.recent() == []
