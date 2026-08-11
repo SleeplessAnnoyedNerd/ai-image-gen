@@ -21,6 +21,7 @@ and rejected.
 | Scope | Image and video | Video is the slow, expensive one — the bigger win for clicking through the UI. Stable Diffusion already degrades gracefully (`/sd-status` reports offline and the button disables itself). |
 | Image output | Solid PNG, colour seeded from `sha256(prompt)` | Each prompt yields a visibly different image, so you can see at a glance that the right text reached the backend. Deterministic: the same prompt always gives the same colour. |
 | Image edit output | Echo back `images[0]` | One line, and it makes the upload grid and the edit path actually verifiable. |
+| Echoed MIME type | Left wrong, knowingly | `serve_image` (`app.py:189`) hardcodes `mimetype="image/png"` for *every* backend, and `_cache_artifact` hardcodes the `.png` extension. Echoing a JPEG upload therefore serves JPEG bytes labelled PNG. Browsers sniff and render it. Pre-existing for all backends; the dummy only makes it easy to hit. Fixing it is a separate change. |
 | PNG generation | `zlib` + `struct` (`zlib.crc32` for the chunk CRCs), ~12 lines | Stdlib writes a valid PNG. Pillow would be a 3MB dependency for a feature whose point is being cheap. |
 | Video output | One tiny MP4 committed to the repo | An MP4 cannot reasonably be synthesized in stdlib. Generated once with the ffmpeg already on this host. |
 | Video timing | Completes on the 3rd poll, queue position 2 then 1 | Exercises the spinner, the polling loop, and `partials/generating.html`'s `progress_queued` branch. Counts polls rather than sleeping — deterministic and no blocked threads. |
@@ -159,6 +160,13 @@ suite structurally cannot make: submit with the dummy backend selected and
 assert the rendered `<img>` reports `naturalWidth === 512`. That proves a real
 browser decodes the PNG we hand-assembled from zlib chunks, which no Python
 assertion can establish.
+
+This test must **not** patch `app.image_gen.generate_image` — the whole point is
+to run the real dummy generator. It must still patch `app._cache_artifact`, as
+the existing `server` fixture does: the dummy path completes successfully, so it
+reaches the artifact write, and the server thread's working directory is
+whatever was current when it started. Leave that patch in and the write cannot
+escape regardless of whether the data-dir spec has shipped.
 
 ## Out of Scope
 

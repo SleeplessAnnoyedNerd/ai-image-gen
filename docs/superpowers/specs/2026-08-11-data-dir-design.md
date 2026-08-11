@@ -42,6 +42,19 @@ Chdir is safe in this app specifically: `config.py` reads through `_BASE_DIR`,
 and Flask resolves templates from the app's absolute `root_path`. Nothing else
 depends on the working directory.
 
+**Checked and not a problem — do not "fix" these:**
+
+- **`logs/` does not need creating first.** Loguru's file sink creates missing
+  parent directories itself. Verified empirically in an empty temp directory:
+  `logger.add("logs/app-test.log")` succeeds and creates `logs/`. A review
+  flagged this as a first-run crash; it is not.
+- **Working directory after pytest exits.** `tests/conftest.py` imports `app`,
+  so the chdir fires at collection time and the process ends with its working
+  directory at `data_dir`. With the default `"."` and pytest run from the
+  project root this is a no-op. It would matter only to something like
+  `cd /tmp/build && pytest /path/to/project`, which nothing here does. Accepted,
+  not worked around.
+
 ## Components
 
 ### `config.py`
@@ -76,6 +89,10 @@ now the data dir.
 
 ### `settings.toml` and `settings.example.toml`
 
+The same block goes in **both** files — `settings.example.toml` is what a fresh
+install copies from, so omitting it there ships a config that silently lacks the
+key:
+
 ```toml
 [paths]
 data_dir = "."
@@ -94,12 +111,25 @@ This **replaces** three existing fixtures, which are deleted:
 
 - `_isolated_prompt_db` in `tests/conftest.py` — the relative `_DB_PATH` now
   resolves under `tmp_path` on its own.
-- `_no_artifact_writes` in `tests/test_routes.py`.
+- `_no_artifact_writes` in `tests/test_routes.py` — but see the race below.
 - `_isolated_cwd` in `tests/test_cache_artifact.py` — moves up to `conftest.py`
   and applies to the whole suite.
 
 Net effect is less test code than today, not more, and one mechanism instead of
 three.
+
+**One test must change before `_no_artifact_writes` can go.** A chdir only
+protects code running inside the test. `test_generate_image_job_starts` and
+`test_generate_dashscope_image` start a *real* daemon thread — unlike their
+neighbours, they do not patch `threading.Thread` to run synchronously. If such
+a thread reaches `_cache_artifact` after the test returns and
+`monkeypatch.chdir` has restored the original working directory, the write
+lands in the real `.cache/`. The window is small but real, and it is exactly
+the failure mode this whole spec exists to eliminate.
+
+Fix both tests to patch `threading.Thread` the way the surrounding tests
+already do, so the job body runs synchronously inside the chdir. Do this in the
+same task that deletes the fixture, not after.
 
 ## Testing
 
@@ -116,6 +146,10 @@ three.
   `config._BASE_DIR` rather than a relative path, since the test's own working
   directory is `tmp_path`. This is the assertion whose absence let the original
   bug survive.
+  - The canary **must patch `threading.Thread` to run synchronously**, as the
+    surrounding tests do. Otherwise the artifact write is still in flight when
+    the assertion runs and the canary passes on a race rather than on
+    correctness — a green test that proves nothing is worse than no test.
 
 ## Out of Scope
 
