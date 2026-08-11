@@ -1,18 +1,6 @@
 import os
-import pytest
 from unittest.mock import patch
 from datetime import datetime
-
-
-@pytest.fixture(autouse=True)
-def _isolated_cwd(tmp_path, monkeypatch):
-    """Run these tests in a throwaway directory.
-
-    _cache_artifact writes to a relative ".cache/" path, so without this the
-    tests operate on — and previously deleted, via shutil.rmtree — the user's
-    real generated-artifact archive in the repo root.
-    """
-    monkeypatch.chdir(tmp_path)
 
 
 def test_cache_artifact_writes_file():

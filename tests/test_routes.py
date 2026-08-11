@@ -1,22 +1,8 @@
 import io
 import base64
-import pytest
 from unittest.mock import patch, MagicMock
 from werkzeug.datastructures import MultiDict
 from services import job_store
-
-
-@pytest.fixture(autouse=True)
-def _no_artifact_writes():
-    """Keep the suite out of the real .cache/ directory.
-
-    These tests patch generate_image but still start a real background thread,
-    which then calls the unpatched _cache_artifact and drops stub PNGs into the
-    user's actual artifact archive. test_cache_artifact.py covers the real
-    function; here it is pure side effect.
-    """
-    with patch("app._cache_artifact"):
-        yield
 
 
 def setup_function():
@@ -36,7 +22,12 @@ def test_lang_switch(client):
 
 
 def test_generate_image_job_starts(client):
-    with patch("app.image_gen.generate_image", return_value=b"png-bytes"):
+    with patch("app.image_gen.generate_image", return_value=b"png-bytes"), \
+         patch("app.threading.Thread") as mock_thread:
+        # Run the job body inline: a real daemon thread can outlive the test
+        # and write to .cache/ after the cwd fixture has unwound.
+        mock_thread.side_effect = lambda target, args, daemon: \
+            type("T", (), {"start": lambda self: target(*args)})()
         resp = client.post("/generate", data={
             "output_type": "image",
             "prompt": "a sunset",
@@ -265,7 +256,10 @@ def test_generate_dashscope_image(client, cfg):
     mock_img.raise_for_status = MagicMock()
 
     with patch("services.image_gen._requests.post", return_value=mock_resp), \
-         patch("services.image_gen._requests.get", return_value=mock_img):
+         patch("services.image_gen._requests.get", return_value=mock_img), \
+         patch("app.threading.Thread") as mock_thread:
+        mock_thread.side_effect = lambda target, args, daemon: \
+            type("T", (), {"start": lambda self: target(*args)})()
         resp = client.post("/generate", data={
             "output_type": "image",
             "prompt": "a cat wearing a hat",
@@ -469,3 +463,44 @@ def test_index_history_label_flattens_newlines(client):
     label_html = body[label_start:tag_end]
     assert "\n" not in label_html
     assert "line one line two" in label_html
+
+
+def test_generate_does_not_write_into_the_project_root(client):
+    """The assertion whose absence let the suite destroy the real .cache/.
+
+    Deliberately does NOT patch _cache_artifact — the real one must run, or
+    this proves nothing. It DOES run the job synchronously, because a
+    background thread could otherwise still be in flight when the assertions
+    run, and the canary would pass on a race rather than on correctness.
+    """
+    import config
+
+    root = config._BASE_DIR
+    cache_dir = root / ".cache"
+    created_cache_dir = (not cache_dir.exists())
+    cache_dir.mkdir(exist_ok=True)
+    canary = cache_dir / "CANARY-leak-test"
+    canary.write_text("planted by the leak canary test")
+    entries_before = set(cache_dir.iterdir())
+    db_existed = (root / "prompts.db").exists()
+
+    try:
+        with patch("app.image_gen.generate_image", return_value=b"png-bytes"), \
+             patch("app.threading.Thread") as mock_thread:
+            mock_thread.side_effect = lambda target, args, daemon: \
+                type("T", (), {"start": lambda self: target(*args)})()
+            client.post("/generate", data={
+                "output_type": "image",
+                "prompt": "leak canary prompt",
+            })
+        client.get("/")
+
+        assert canary.exists(), "the suite deleted files from the real .cache/"
+        assert set(cache_dir.iterdir()) == entries_before, \
+            "the suite wrote artifacts into the real .cache/"
+        assert (root / "prompts.db").exists() == db_existed, \
+            "the suite created a prompts.db in the project root"
+    finally:
+        canary.unlink(missing_ok=True)
+        if (created_cache_dir and cache_dir.exists() and (not any(cache_dir.iterdir()))):
+            cache_dir.rmdir()

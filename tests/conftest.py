@@ -1,7 +1,6 @@
 import pytest
 from app import create_app
 from config import Config, ImageBackend
-from services import prompt_store
 
 
 @pytest.fixture
@@ -44,6 +43,11 @@ def client(app):
 
 
 @pytest.fixture(autouse=True)
-def _isolated_prompt_db(tmp_path, monkeypatch):
-    """Every test gets a fresh, throwaway prompt DB outside the repo."""
-    monkeypatch.setattr(prompt_store, "_DB_PATH", str(tmp_path / "prompts.db"))
+def _isolated_cwd(tmp_path, monkeypatch):
+    """Every test writes into a throwaway directory.
+
+    The app resolves .cache/, logs/ and prompts.db against the working
+    directory, so this one fixture isolates all of them — including writes
+    added later that nobody thought to guard individually.
+    """
+    monkeypatch.chdir(tmp_path)
