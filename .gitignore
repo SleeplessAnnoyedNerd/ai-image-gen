@@ -3,3 +3,4 @@
 .secrets.toml
 .worktrees/
 prompts.db
+.superpowers/
