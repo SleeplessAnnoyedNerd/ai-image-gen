@@ -1,6 +1,5 @@
 import pytest
 import config
-from pathlib import Path
 from config import Config, _parse_list, _load_toml, _merge, _require, _get
 
 
