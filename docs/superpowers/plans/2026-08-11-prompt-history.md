@@ -29,7 +29,7 @@
 | `tests/test_prompt_store.py` | Create | Unit tests for the store in isolation. |
 | `tests/conftest.py` | Modify | Autouse fixture redirecting `_DB_PATH` to `tmp_path` for **every** test. |
 | `app.py` | Modify | Records on submit; passes `prompts` to the index template. |
-| `templates/index.html` | Modify | The `<select>`, its `onchange`, and the post-submit prepend. |
+| `templates/index.html` | Modify | The `<select>`, its selection handling (fills the textarea on `change`, resets on `blur`), and the post-submit prepend. |
 | `translations.py` | Modify | One key, `prompt_history`, en + de. |
 | `.gitignore` | Modify | Add `prompts.db`. |
 
@@ -608,13 +608,14 @@ source venv/bin/activate && python app.py --port 5001
 
 Then in a browser at `http://localhost:5001`:
 
-1. On a fresh DB, confirm **no** dropdown appears above the prompt field, and that submitting a prompt does not throw in the browser console. (This is the null-guard path.)
-2. Reload. Confirm the dropdown now appears with your prompt in it.
+1. On a fresh DB, confirm the wrapper renders but is not visible above the prompt field (it is present in the DOM with `hidden`, not absent). Submit a prompt and confirm the dropdown becomes visible **without** a reload, with no console error.
+2. Reload. Confirm the dropdown still appears with your prompt in it.
 3. Submit a second, different prompt. Confirm it appears at the top of the dropdown **without** a reload.
 4. Re-submit the first prompt. Confirm it moves to the top and is not duplicated.
-5. Pick an entry from the dropdown. Confirm the textarea fills with the **full** text (not the 40-char label) and the select snaps back to `— Recent prompts —`.
-6. Pick the *same* entry again. Confirm it still fills the textarea.
-7. Submit a prompt with a `"` and a `<` in it. Confirm no console error and no broken markup.
+5. Pick an entry from the dropdown. Confirm the textarea fills with the **full** text (not the 40-char label) and gains focus. The select visibly resets to `— Recent prompts —` right away — the `change` handler calls `ta.focus()`, which synchronously fires `blur` on the select and runs the (untouched) blur listener. So the reset still looks immediate, just via a different mechanism than before (triggered by the code's own focus shift, not by you tabbing away).
+6. Pick the *same* entry again. Confirm it still fills the textarea. No extra manual blur step is needed for this: step 5 already left the select's value reset to the placeholder, so re-picking the same visible label is a genuine value change and `change` fires normally.
+7. Type a prompt into the textarea, focus the select, and press the Down-arrow key to browse without picking. Confirm what happens to the typed text, and specifically whether Ctrl+Z recovers it. Firefox is expected to honour `setRangeText` on the textarea's native undo stack; Chrome's behaviour needs confirming by hand.
+8. Submit a prompt with a `"` and a `<` in it. Confirm no console error and no broken markup.
 
 Stop the server when done.
 
@@ -635,7 +636,7 @@ After all three tasks:
 source venv/bin/activate && python -m pytest -q
 ```
 
-Expected: **111 passed**.
+Expected: **114 passed** (111 after Task 3, plus 3 more from the post-review fix wave: a blur-reset naming/quote-escaping pass and the final dropdown-visibility fixes).
 
 ```bash
 git status --short

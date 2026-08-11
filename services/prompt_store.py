@@ -11,7 +11,11 @@ _lock = threading.Lock()
 @contextmanager
 def _db():
     """Connect-per-call. Sidesteps sqlite3's thread-affinity rule entirely,
-    and makes CREATE TABLE IF NOT EXISTS the only init step there is."""
+    and makes CREATE TABLE IF NOT EXISTS the only init step there is.
+    Caveat: an existing prompts.db keeps whatever schema it was created
+    with forever — IF NOT EXISTS is a no-op against a stale schema, so
+    there is no migration path and no startup error if this table
+    definition ever changes."""
     with _lock:
         conn = sqlite3.connect(_DB_PATH)
         try:

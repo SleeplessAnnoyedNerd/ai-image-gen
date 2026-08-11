@@ -349,12 +349,13 @@ def test_generate_records_prompt_even_when_request_is_rejected(client):
     you want to retry."""
     from services import prompt_store
 
-    client.post("/generate", data={
+    resp = client.post("/generate", data={
         "output_type": "image",
         "prompt": "rejected but memorable",
         "image_backend": "does-not-exist",
     })
 
+    assert resp.status_code == 400
     assert "rejected but memorable" in prompt_store.recent()
 
 
@@ -370,9 +371,27 @@ def test_generate_does_not_record_blank_prompt(client):
     assert prompt_store.recent() == []
 
 
-def test_index_hides_history_select_when_empty(client):
+def test_index_history_wrapper_hidden_when_empty(client):
+    """Nothing is visible on a fresh install: the wrapper still renders (the
+    JS needs it to exist so the first post-submit prepend can unhide it),
+    but it carries the `hidden` attribute so a first-time user sees nothing."""
     resp = client.get("/")
-    assert b'id="prompt-history"' not in resp.data
+    body = resp.data.decode("utf-8")
+    assert 'id="prompt-history-wrap"' in body
+    tag_start = body.index('id="prompt-history-wrap"')
+    tag_end = body.index(">", tag_start)
+    assert "hidden" in body[tag_start:tag_end]
+
+
+def test_index_history_wrapper_visible_when_populated(client):
+    from services import prompt_store
+
+    prompt_store.add("a previously used prompt")
+    resp = client.get("/")
+    body = resp.data.decode("utf-8")
+    tag_start = body.index('id="prompt-history-wrap"')
+    tag_end = body.index(">", tag_start)
+    assert "hidden" not in body[tag_start:tag_end]
 
 
 def test_index_shows_history_select_when_populated(client):
@@ -419,3 +438,20 @@ def test_index_escapes_quote_in_history_entry(client):
     prompt_store.add('a " onmouseover="alert(1)')
     body = client.get("/").data.decode("utf-8")
     assert 'onmouseover="' not in body
+
+
+def test_index_history_label_flattens_newlines(client):
+    from services import prompt_store
+
+    prompt_store.add("line one\nline two")
+    body = client.get("/").data.decode("utf-8")
+
+    # The option's value keeps the full text, newline included...
+    assert 'value="line one\nline two"' in body
+    # ...but the visible label has the newline replaced with a space.
+    tag_start = body.index('<option value="line one')
+    tag_end = body.index("</option>", tag_start)
+    label_start = body.index(">", tag_start) + 1
+    label_html = body[label_start:tag_end]
+    assert "\n" not in label_html
+    assert "line one line two" in label_html

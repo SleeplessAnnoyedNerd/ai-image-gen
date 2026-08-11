@@ -20,9 +20,8 @@
         class="space-y-6">
 
     <!-- Recent prompts -->
-    {% if prompts %}
-    <div>
-      <label class="block text-sm font-medium text-gray-600 mb-1">
+    <div id="prompt-history-wrap" {% if not prompts %}hidden{% endif %}>
+      <label class="block text-sm font-medium text-gray-600 mb-1" for="prompt-history">
         {{ t.prompt_history }}
       </label>
       <select id="prompt-history"
@@ -34,7 +33,6 @@
         {% endfor %}
       </select>
     </div>
-    {% endif %}
 
     <!-- Prompt -->
     <div>
@@ -49,9 +47,10 @@
 
     <script>
       (function() {
-        var sel = document.getElementById('prompt-history');
-        var ta  = document.querySelector('textarea[name="prompt"]');
-        var MAX = 25;
+        var wrap = document.getElementById('prompt-history-wrap');
+        var sel  = document.getElementById('prompt-history');
+        var ta   = document.querySelector('textarea[name="prompt"]');
+        var MAX  = 25;
 
         function label(text) {
           var flat = text.replace(/\n/g, ' ');
@@ -62,18 +61,22 @@
           }
         }
 
-        if (sel) {
-          sel.addEventListener('change', function() {
-            if (this.value) {
-              ta.value = this.value;
-            }
-          });
+        sel.addEventListener('change', function() {
+          // Read this.value before focusing the textarea: ta.focus() fires
+          // 'blur' on sel synchronously, and the blur listener below resets
+          // selectedIndex to 0 — reading this.value after that point would
+          // read back the placeholder's empty value instead of the pick.
+          var picked = this.value;
+          if (picked) {
+            ta.focus();
+            ta.setRangeText(picked, 0, ta.value.length, 'end');
+          }
+        });
 
-          sel.addEventListener('blur', function() {
-            // Reset once focus leaves, so picking the same entry twice works.
-            this.selectedIndex = 0;
-          });
-        }
+        sel.addEventListener('blur', function() {
+          // Reset once focus leaves, so picking the same entry twice works.
+          this.selectedIndex = 0;
+        });
 
         /* Keep the dropdown current: the form submits via htmx, so the page
          * never reloads and the server-rendered list would otherwise go stale.
@@ -81,10 +84,6 @@
          * registration order and this one touches only the select, while the
          * upload handler below touches only evt.detail.parameters. */
         document.querySelector('form[hx-post]').addEventListener('htmx:configRequest', function() {
-          // The select is absent until the first prompt is stored.
-          if (!sel) {
-            return;
-          }
           var p = ta.value.trim();
           if (!p) {
             return;
@@ -104,6 +103,9 @@
           // options[1] is undefined when only the placeholder remains;
           // insertBefore(node, null) appends, which is what we want.
           sel.insertBefore(opt, (sel.options[1] || null));
+          // The wrapper starts hidden on a fresh install; the first inserted
+          // option is the signal that there is now something to show.
+          wrap.hidden = false;
           while (sel.options.length > (MAX + 1)) {
             sel.remove(sel.options.length - 1);
           }
