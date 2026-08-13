@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -72,9 +73,84 @@ _SNIPPET_BEFORE = 60
 _SNIPPET_AFTER = 140
 
 
+def _compile(query: str) -> tuple[list | None, bool]:
+    """Turn a query into a list of patterns that must ALL match.
+
+    Both modes compile to the same thing on purpose: the patterns are used
+    for filtering AND for locating spans to highlight, so a single mechanism
+    is the only way the two can never disagree. The obvious keyword shortcut
+    -- `term in text.lower()` -- would disagree, because lowering can change
+    length (`"İ".lower()` is two code points) and the offsets no longer map
+    back onto the original text.
+
+    Returns (patterns, regex_error). patterns is None when there is nothing
+    to search for.
+    """
+    q = query.strip()
+    if (not q):
+        return (None, False)
+    # Regex mode needs BOTH delimiters and a non-empty body. A half-typed
+    # "/foo" is a keyword, so typing towards "/foo/" never flashes an error,
+    # and "//" is a literal rather than an empty pattern matching everything.
+    if ((len(q) >= 3) and q.startswith("/") and q.endswith("/")):
+        try:
+            return ([re.compile(q[1:-1], re.IGNORECASE)], False)
+        except re.error:
+            return (None, True)
+    # re.escape keeps % and _ literal for free, and re.IGNORECASE is
+    # Unicode-aware, so "größe" finds "Größe".
+    return ([re.compile(re.escape(term), re.IGNORECASE) for term in q.split()], False)
+
+
 def _segments(text: str, patterns: list) -> list[tuple[str, bool]]:
-    """Split text into (chunk, is_match) pairs for the template to render."""
-    return [(text[:(_SNIPPET_BEFORE + _SNIPPET_AFTER)], False)]
+    """Split a snippet of text into (chunk, is_match) pairs.
+
+    Spans are found over the FULL text, never over the window: '$' and
+    lookbehind do not survive slicing, so a window-local search would match
+    the row and then highlight nothing.
+    """
+    spans = []
+    for rx in patterns:
+        for match in rx.finditer(text):
+            # Zero-length matches (/a*/, /^/) would render as empty <mark>s.
+            if (match.end() > match.start()):
+                spans.append((match.start(), match.end()))
+    spans.sort()
+
+    merged: list[tuple[int, int]] = []
+    for start, end in spans:
+        if (merged and (start <= merged[-1][1])):
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+
+    if (merged):
+        window_start = max(0, (merged[0][0] - _SNIPPET_BEFORE))
+        window_end = min(len(text), (merged[0][1] + _SNIPPET_AFTER))
+    else:
+        window_start = 0
+        window_end = min(len(text), (_SNIPPET_BEFORE + _SNIPPET_AFTER))
+
+    out: list[tuple[str, bool]] = []
+    if (window_start > 0):
+        out.append(("…", False))
+
+    cursor = window_start
+    for start, end in merged:
+        start = max(start, window_start)
+        end = min(end, window_end)
+        if (start >= end):
+            continue
+        if (start > cursor):
+            out.append((text[cursor:start], False))
+        out.append((text[start:end], True))
+        cursor = end
+    if (cursor < window_end):
+        out.append((text[cursor:window_end], False))
+
+    if (window_end < len(text)):
+        out.append(("…", False))
+    return out
 
 
 def recent(n: int = 25, min_count: int = 1) -> list[Row]:
@@ -105,3 +181,36 @@ def top(n: int = 3) -> list[Row]:
             (n,),
         ).fetchall()
     return [Row(text, use_count, _segments(text, [])) for text, use_count in rows]
+
+
+def search(query: str, limit: int = 50) -> tuple[list[Row], bool, int]:
+    """Prompts matching query, newest first.
+
+    Returns (rows, regex_error, total). total counts every match, not just
+    the ones returned, so the caller can say "showing 50 of 130" -- which is
+    why the scan does not stop early at limit.
+
+    Deliberately has no min_count parameter: search sees every prompt.
+
+    Accepted risk: `re` cannot be interrupted, so a valid but catastrophic
+    pattern like /(a+)+$/ can spin. Single-user tool on a trusted LAN; the
+    only person who can type it is the one it would inconvenience.
+    """
+    patterns, regex_error = _compile(query)
+    if (patterns is None):
+        return ([], regex_error, 0)
+
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT text, use_count FROM prompts ORDER BY used_at DESC"
+        ).fetchall()
+
+    out = []
+    total = 0
+    for text, use_count in rows:
+        if (not all((rx.search(text)) for rx in patterns)):
+            continue
+        total += 1
+        if (len(out) < limit):
+            out.append(Row(text, use_count, _segments(text, patterns)))
+    return (out, False, total)
