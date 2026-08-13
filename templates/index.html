@@ -29,7 +29,7 @@
                      focus:outline-none focus:ring-2 focus:ring-blue-400">
         <option value="">— {{ t.prompt_history }} —</option>
         {% for p in prompts %}
-        <option value="{{ p }}">{{ p[:40] | replace('\n', ' ') }}{% if p | length > 40 %}…{% endif %}</option>
+        <option value="{{ p.text }}">{{ p.text[:40] | replace('\n', ' ') }}{% if p.text | length > 40 %}…{% endif %}</option>
         {% endfor %}
       </select>
     </div>

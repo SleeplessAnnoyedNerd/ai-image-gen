@@ -352,7 +352,7 @@ def test_generate_records_prompt_in_history(client):
             "prompt": "a lighthouse at dusk",
         })
 
-    assert "a lighthouse at dusk" in prompt_store.recent()
+    assert "a lighthouse at dusk" in [r.text for r in prompt_store.recent()]
 
 
 def test_generate_records_prompt_even_when_request_is_rejected(client):
@@ -367,7 +367,7 @@ def test_generate_records_prompt_even_when_request_is_rejected(client):
     })
 
     assert resp.status_code == 400
-    assert "rejected but memorable" in prompt_store.recent()
+    assert "rejected but memorable" in [r.text for r in prompt_store.recent()]
 
 
 def test_generate_does_not_record_blank_prompt(client):
