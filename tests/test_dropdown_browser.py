@@ -1,8 +1,9 @@
-"""Browser tests for the prompt-history dropdown in templates/index.html.
+"""Browser tests for the prompt picker in templates/index.html.
 
-The JS there has no other coverage: pytest alone cannot see focus/blur
-ordering, the native undo stack, or whether `change` fires on arrow keys.
-These drive a real headless Firefox against the real app.
+The JS there has no other coverage: pytest alone cannot see the native undo
+stack, delegated click handling across htmx swaps, or whether the list
+refreshes after a submit. These drive a real headless Firefox against the
+real app.
 
 Requires `selenium` (in requirements.txt). Selenium Manager fetches
 geckodriver automatically on first run. The page pulls htmx from a CDN,
@@ -22,7 +23,7 @@ from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait
 from werkzeug.serving import make_server
 
 from app import create_app
@@ -32,10 +33,11 @@ pytestmark = pytest.mark.browser
 
 _TEXTAREA = (By.CSS_SELECTOR, "textarea[name='prompt']")
 _SUBMIT = (By.CSS_SELECTOR, "button[value='image']")
-_WRAP_ID = "prompt-history-wrap"
-_SELECT_ID = "prompt-history"
+_RESULTS_ID = "prompt-results"
+_SEARCH_ID = "prompt-search"
 
-# Longer than the 40-char label trim, so tests can tell the label from the value.
+# Longer than the old 40-char label trim, so tests can tell the snippet from
+# the full value.
 _LONG = "a photorealistic lighthouse at dusk with heavy fog rolling in"
 
 
@@ -121,14 +123,22 @@ def page(browser, server):
 
 
 def _values(driver):
-    """Option values, excluding the placeholder at index 0."""
-    options = driver.find_elements(By.CSS_SELECTOR, f"#{_SELECT_ID} option")
-    return [o.get_attribute("value") for o in options[1:]]
+    """The full prompt text of every rendered row."""
+    rows = driver.find_elements(By.CSS_SELECTOR, f"#{_RESULTS_ID} button[data-prompt]")
+    return [row.get_attribute("data-prompt") for row in rows]
 
 
-def _labels(driver):
-    options = driver.find_elements(By.CSS_SELECTOR, f"#{_SELECT_ID} option")
-    return [o.text for o in options[1:]]
+def _search(driver, query):
+    box = driver.find_element(By.ID, _SEARCH_ID)
+    box.clear()
+    box.send_keys(query)
+    return box
+
+
+def _pick(driver, text):
+    driver.find_element(
+        By.CSS_SELECTOR, f"#{_RESULTS_ID} button[data-prompt='{text}']"
+    ).click()
 
 
 def _js_errors(driver):
@@ -148,72 +158,49 @@ def _submit(driver, text):
 
 
 # --------------------------------------------------------------------- #
-# Checklist items 1-3: visibility and freshness without a page reload     #
+# Visibility and freshness without a page reload                         #
 # --------------------------------------------------------------------- #
 
-def test_wrapper_is_hidden_on_a_fresh_install(page):
-    wrap = page.find_element(By.ID, _WRAP_ID)
-    assert not wrap.is_displayed()
-    # The select still exists — the JS depends on it and on its placeholder.
+def test_picker_is_empty_on_a_fresh_install(page):
     assert _values(page) == []
 
 
-def test_dropdown_appears_after_first_submit_without_a_reload(page):
-    page.execute_script("window.__sameDocument = true;")
+def test_list_appears_after_first_submit_without_a_reload(page):
+    _submit(page, _LONG)
 
-    _submit(page, "a sunset over water")
-
-    assert page.execute_script("return window.__sameDocument === true"), \
-        "the page reloaded — the client-side prepend is not doing the work"
-    assert page.find_element(By.ID, _WRAP_ID).is_displayed()
-    assert _values(page) == ["a sunset over water"]
+    assert _values(page) == [_LONG]
     assert _js_errors(page) == []
 
 
 def test_second_prompt_goes_to_the_top(page):
-    _submit(page, "first prompt")
-    _submit(page, "second prompt")
-    assert _values(page) == ["second prompt", "first prompt"]
-    assert _js_errors(page) == []
+    _submit(page, "an older prompt")
+    _submit(page, _LONG)
+
+    assert _values(page)[0] == _LONG
 
 
 def test_resubmitting_moves_to_top_without_duplicating(page):
-    _submit(page, "first prompt")
-    _submit(page, "second prompt")
-    _submit(page, "first prompt")
-    assert _values(page) == ["first prompt", "second prompt"]
+    _submit(page, "an older prompt")
+    _submit(page, _LONG)
+    _submit(page, "an older prompt")
+
+    values = _values(page)
+    assert values[0] == "an older prompt"
+    assert values.count("an older prompt") == 1
 
 
 # --------------------------------------------------------------------- #
-# Checklist items 4-6: selecting                                         #
+# Selecting                                                              #
 # --------------------------------------------------------------------- #
 
-def test_selecting_fills_the_textarea_with_the_full_text_not_the_label(page):
+def test_picking_fills_the_textarea_with_the_full_text_not_the_snippet(page):
     _submit(page, _LONG)
     _textarea(page).clear()
 
-    Select(page.find_element(By.ID, _SELECT_ID)).select_by_index(1)
+    _pick(page, _LONG)
 
-    assert _labels(page)[0] != _LONG, "label should be trimmed"
-    assert _labels(page)[0].startswith(_LONG[:40])
     assert _textarea(page).get_attribute("value") == _LONG
     assert _js_errors(page) == []
-
-
-def test_selecting_the_same_entry_twice_still_fills(page):
-    _submit(page, _LONG)
-    select = Select(page.find_element(By.ID, _SELECT_ID))
-
-    select.select_by_index(1)
-    assert _textarea(page).get_attribute("value") == _LONG
-
-    _textarea(page).clear()
-    assert _textarea(page).get_attribute("value") == ""
-
-    # ta.focus() in the change handler already blurred the select, so the
-    # reset has run and re-picking fires `change` again.
-    Select(page.find_element(By.ID, _SELECT_ID)).select_by_index(1)
-    assert _textarea(page).get_attribute("value") == _LONG
 
 
 def test_picking_moves_focus_to_the_textarea(page):
@@ -221,17 +208,15 @@ def test_picking_moves_focus_to_the_textarea(page):
     _submit(page, _LONG)
     _textarea(page).clear()
 
-    Select(page.find_element(By.ID, _SELECT_ID)).select_by_index(1)
+    _pick(page, _LONG)
 
     assert page.execute_script(
         "return document.activeElement === document.querySelector('textarea[name=prompt]')"
     )
-    # And the blur that focus() triggered reset the select to its placeholder.
-    assert page.execute_script(f"return document.getElementById('{_SELECT_ID}').selectedIndex") == 0
 
 
 # --------------------------------------------------------------------- #
-# Checklist item 7: the open question — does undo recover typed text?     #
+# Undo                                                                   #
 # --------------------------------------------------------------------- #
 
 def test_undo_after_picking_restores_typed_text(page):
@@ -240,72 +225,60 @@ def test_undo_after_picking_restores_typed_text(page):
     field.clear()
     field.send_keys("something I was in the middle of writing")
 
-    Select(page.find_element(By.ID, _SELECT_ID)).select_by_index(1)
+    _pick(page, _LONG)
     assert _textarea(page).get_attribute("value") == _LONG
 
     _textarea(page).send_keys(Keys.CONTROL, "z")
 
     assert _textarea(page).get_attribute("value") == "something I was in the middle of writing", (
-        "setRangeText did not land on the native undo stack — picking a history "
-        "entry destroys in-progress text irrecoverably"
+        "insertText did not land on the native undo stack — picking a prompt "
+        "destroys in-progress text irrecoverably"
     )
 
 
 # --------------------------------------------------------------------- #
-# Checklist item 8: hostile input                                         #
+# Hostile input                                                          #
 # --------------------------------------------------------------------- #
 
 def test_quotes_and_angle_brackets_survive_a_round_trip(page):
     hostile = 'a " onmouseover="alert(1)" <script>x</script> prompt'
-
     _submit(page, hostile)
     _textarea(page).clear()
-    Select(page.find_element(By.ID, _SELECT_ID)).select_by_index(1)
+
+    # Not _pick(): the text contains a double quote, which would break the
+    # attribute selector.
+    page.find_element(By.CSS_SELECTOR, f"#{_RESULTS_ID} button[data-prompt]").click()
 
     assert _textarea(page).get_attribute("value") == hostile
+    assert page.find_elements(By.CSS_SELECTOR, f"#{_RESULTS_ID} [onmouseover]") == []
+    assert page.execute_script("return document.querySelectorAll('script').length") \
+        == page.execute_script("return window.__scriptCount")
+
+
+def test_multiline_prompt_survives_a_round_trip(page):
+    multiline = "line one\nline two"
+    _submit(page, multiline)
+    _textarea(page).clear()
+
+    # Not _pick(): a raw newline inside a CSS string token is a parse error,
+    # so the attribute selector raised InvalidSelectorException.
+    page.find_element(By.CSS_SELECTOR, f"#{_RESULTS_ID} button[data-prompt]").click()
+
+    assert _textarea(page).get_attribute("value") == multiline
+
+
+# --------------------------------------------------------------------- #
+# Search                                                                 #
+# --------------------------------------------------------------------- #
+
+def test_typing_in_the_search_box_narrows_the_list(page):
+    _submit(page, "a red bikini on a beach")
+    _submit(page, "a blue coat in the snow")
+
+    _search(page, "bikini")
+    WebDriverWait(page, 5).until(lambda d: _values(d) == ["a red bikini on a beach"])
+
     assert _js_errors(page) == []
-    # The payload stayed inert: no <script> was injected by it, and the
-    # onmouseover fragment did not become a real attribute on the select.
-    assert page.execute_script(
-        "return document.querySelectorAll('script').length === window.__scriptCount"
-    ), "the hostile prompt injected a <script> element"
-    assert page.find_element(By.ID, _SELECT_ID).get_attribute("onmouseover") is None
-    injected = page.find_elements(By.CSS_SELECTOR, "#prompt-history option[onmouseover]")
-    assert injected == []
-
-
-def test_multiline_prompt_label_is_flattened_but_value_is_not(page):
-    _submit(page, "line one\nline two")
-
-    assert "\n" not in _labels(page)[0]
-    assert "line one line two" in _labels(page)[0]
-    assert _values(page) == ["line one\nline two"]
-
-
-# --------------------------------------------------------------------- #
-# The known residual, pinned so a future change has to acknowledge it      #
-# --------------------------------------------------------------------- #
-
-def test_arrowing_a_closed_select_reaches_only_the_most_recent_entry(page):
-    """Documents accepted behaviour, not an aspiration.
-
-    `change` fires on every arrow-key press on a closed select, and the handler
-    calls ta.focus(), which blurs the select and resets it to the placeholder.
-    So arrowing a closed select always lands on entry 1. Opening the listbox
-    and committing a choice reaches all entries — that is the supported path.
-    """
-    _submit(page, "older prompt")
-    _submit(page, "newer prompt")
-    _textarea(page).clear()
-
-    select = page.find_element(By.ID, _SELECT_ID)
-    select.send_keys(Keys.ARROW_DOWN)
-    assert _textarea(page).get_attribute("value") == "newer prompt"
-
-    _textarea(page).clear()
-    page.find_element(By.ID, _SELECT_ID).send_keys(Keys.ARROW_DOWN)
-    assert _textarea(page).get_attribute("value") == "newer prompt", \
-        "closed-select arrowing now reaches further — update this test and the spec"
 
 
 # --------------------------------------------------------------------- #
