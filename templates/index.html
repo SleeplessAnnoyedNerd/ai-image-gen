@@ -87,9 +87,10 @@
         // The search input lives outside the form, so its own /prompts
         // requests do not bubble back into this handler.
         document.querySelector('form[hx-post]').addEventListener('htmx:afterRequest', function(evt) {
-          // Always refresh: add() runs before the backend call, so the list
-          // changes on failures too. Only wipe the search box on success —
-          // a failed POST should not destroy the user's active search.
+          // Always refresh: add() runs after validation, so the list only
+          // changes on valid submissions — but refreshing is harmless either
+          // way. Only wipe the search box on success — a failed POST should
+          // not destroy the user's active search.
           if (evt.detail.successful) {
             search.value = '';
           }

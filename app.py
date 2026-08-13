@@ -152,7 +152,6 @@ def create_app(cfg: Config | None = None) -> Flask:
     def generate():
         output_type = request.form.get("output_type", "image")
         prompt = request.form.get("prompt", "").strip()
-        prompt_store.add(prompt)
 
         # Read all uploaded files, filter empty filenames and empty/oversized files
         raw_files = request.files.getlist("images")
@@ -174,6 +173,9 @@ def create_app(cfg: Config | None = None) -> Flask:
         image_backend = request.form.get("image_backend") or cfg.image_default_backend
         if image_backend not in cfg.image_backends:
             abort(400)
+
+        prompt_store.add(prompt)
+
         bc = cfg.image_backends[image_backend]
 
         image_model       = request.form.get("image_model")       or bc.model[0]

@@ -355,19 +355,19 @@ def test_generate_records_prompt_in_history(client):
     assert "a lighthouse at dusk" in [r.text for r in prompt_store.recent()]
 
 
-def test_generate_records_prompt_even_when_request_is_rejected(client):
-    """A prompt is worth keeping even if the request 400s — it's the one
-    you want to retry."""
+def test_generate_skips_prompt_when_request_is_rejected(client):
+    """A rejected request should not bump use_count — retrying a bad backend
+    2× would otherwise pin the prompt into favourites."""
     from services import prompt_store
 
     resp = client.post("/generate", data={
         "output_type": "image",
-        "prompt": "rejected but memorable",
+        "prompt": "rejected but forgettable",
         "image_backend": "does-not-exist",
     })
 
     assert resp.status_code == 400
-    assert "rejected but memorable" in [r.text for r in prompt_store.recent()]
+    assert "rejected but forgettable" not in [r.text for r in prompt_store.recent()]
 
 
 def test_generate_does_not_record_blank_prompt(client):
