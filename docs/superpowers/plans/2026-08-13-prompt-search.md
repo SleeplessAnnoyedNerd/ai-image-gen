@@ -276,7 +276,8 @@ def top(n: int = 3) -> list[Row]:
     return [Row(text, use_count, _segments(text, [])) for text, use_count in rows]
 ```
 
-Add a placeholder `_segments` — Task 2 replaces it with the real one:
+Add a placeholder `_segments` — Task 2 replaces it wholesale, so keep it to the
+minimum that satisfies the type. Nothing in Task 1 observes its output:
 
 ```python
 _SNIPPET_BEFORE = 60
@@ -285,11 +286,7 @@ _SNIPPET_AFTER = 140
 
 def _segments(text: str, patterns: list) -> list[tuple[str, bool]]:
     """Split text into (chunk, is_match) pairs for the template to render."""
-    window = text[:(_SNIPPET_BEFORE + _SNIPPET_AFTER)]
-    out = [(window, False)]
-    if (len(text) > len(window)):
-        out.append(("…", False))
-    return out
+    return [(text[:(_SNIPPET_BEFORE + _SNIPPET_AFTER)], False)]
 ```
 
 - [ ] **Step 4: Keep the existing template and route working**
@@ -723,6 +720,22 @@ def test_prompts_endpoint_reports_an_invalid_pattern_without_erroring(client):
 
     assert resp.status_code == 200
     assert b"anything" not in resp.data
+    # Assert the hint itself. Without this the test also passes against an
+    # implementation that silently renders nothing, which is the failure mode
+    # the spec explicitly rules out.
+    assert b"Invalid regular expression." in resp.data
+
+
+def test_min_use_count_hides_rare_prompts_from_the_list_but_not_from_search(client, cfg):
+    """The central design decision, and the only thing keeping the counter
+    honest: the cutoff trims the default list and nothing else."""
+    from services import prompt_store
+
+    cfg.prompt_min_use_count = 3
+    prompt_store.add("used exactly once")
+
+    assert b"used exactly once" not in client.get("/prompts").data
+    assert b"used exactly once" in client.get("/prompts?q=exactly").data
 
 
 def test_blank_query_is_treated_as_no_query_not_as_no_matches(client):
@@ -744,7 +757,10 @@ def test_pinned_prompts_are_not_repeated_in_the_recent_list(client):
 
     body = client.get("/prompts").data.decode()
 
-    assert body.count("a favourite") == 1
+    # Count the attribute, not the bare text: each row renders the prompt
+    # three times over (data-prompt, title, and the visible chunk), so
+    # body.count("a favourite") is 3 even when the dedup is working.
+    assert body.count('data-prompt="a favourite"') == 1
 
 
 def test_prompt_html_is_escaped_in_the_results(client):
@@ -944,7 +960,7 @@ And add the route after `index()`:
 source venv/bin/activate && pytest -q
 ```
 
-Expected: 173 passed (164 + 9 new). If `test_index_history_wrapper_visible_when_populated` or `test_index_history_wrapper_hidden_when_empty` now fail because the wrapper is no longer the only signal, leave them — Task 4 rewrites them. If they pass, leave them alone too.
+Expected: 174 passed (164 + 10 new). The `<select>` and its wrapper are untouched in this task, so every existing wrapper test still passes — this commit point is fully green, no exceptions.
 
 - [ ] **Step 9: Commit**
 
@@ -986,14 +1002,24 @@ def test_index_lists_a_stored_prompt_as_a_button(client):
     body = client.get("/").data.decode()
 
     assert 'data-prompt="a previously used prompt"' in body
-    assert "<select" not in body or 'id="prompt-history"' not in body
+    assert 'id="prompt-history"' not in body
+
+
+def test_picker_is_outside_the_generate_form(client):
+    """Inside the form, the search box would be serialised into POST /generate
+    as a stray `q` field. /generate ignores unknown fields, so nothing would
+    visibly break — which is exactly why this needs a test. It replaces the
+    guard the old `<select>` markup test provided."""
+    body = client.get("/").data.decode()
+
+    assert body.index('id="prompt-search"') < body.index("<form")
 ```
 
 Five more tests in the file assert on `<select>` markup and must be rewritten against the partial. Named individually so none is quietly dropped:
 
 - `test_index_shows_history_select_when_populated` (`:411`) → assert on `data-prompt` instead of `<option value=`.
 - `test_index_trims_long_history_labels` (`:426`) → the 40-char label trim is gone; assert instead that a 1000-char prompt renders a snippet shorter than the full text while `data-prompt` still carries all 1000 characters.
-- `test_index_escapes_history_entries` (`:440`) and `test_index_escapes_quote_in_history_entry` (`:449`) → keep the same hostile inputs, assert `&lt;script&gt;` and `&quot;` appear and the raw forms do not. These are the XSS guards; they matter more now that there is markup inside each row.
+- `test_index_escapes_history_entries` (`:440`) and `test_index_escapes_quote_in_history_entry` (`:449`) → keep the same hostile inputs and the existing assertions (`"<script>alert" not in body`, `'onmouseover="' not in body`, `"&lt;script&gt;" in body`). Do **not** assert `&quot;` — markupsafe emits `&#34;` for a double quote, so that assertion can never pass. These are the XSS guards; they matter more now that there is markup inside each row.
 - `test_index_history_label_flattens_newlines` (`:457`) → newline flattening is now CSS, not string munging. Assert the `data-prompt` attribute round-trips `"line one\nline two"` intact.
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -1059,10 +1085,21 @@ Delete the entire existing `<script>` block that defines `label()`, the `change`
         });
 
         // Keep the list current: the form submits via htmx, so the page never
-        // reloads and the server-rendered list would go stale. Clearing first
-        // is deliberate — refreshing with a stale query would render results
-        // for that query, which need not contain the prompt just submitted.
-        document.querySelector('form[hx-post]').addEventListener('htmx:configRequest', function() {
+        // reloads and the server-rendered list would go stale.
+        //
+        // afterRequest, NOT configRequest: configRequest fires *before* the
+        // POST goes out, so the refresh GET would race POST /generate and
+        // usually read the database back before prompt_store.add() has run —
+        // returning a list without the prompt just submitted. afterRequest
+        // fires once the POST has completed and the row exists.
+        //
+        // Clearing the box first is also deliberate: refreshing with a stale
+        // query would render results for that query, which need not contain
+        // the new prompt either.
+        //
+        // The search input lives outside the form, so its own /prompts
+        // requests do not bubble back into this handler.
+        document.querySelector('form[hx-post]').addEventListener('htmx:afterRequest', function() {
           search.value = '';
           htmx.trigger(search, 'search');
         });
@@ -1076,7 +1113,7 @@ Delete the entire existing `<script>` block that defines `label()`, the `change`
 source venv/bin/activate && pytest -m "not browser" -q
 ```
 
-Expected: PASS. Browser tests are expected to fail at this point — Task 5 ports them.
+Expected: PASS, 175 total (174 from Task 3, plus one net new index test — two wrapper tests replaced by three). Browser tests are expected to fail at this point — Task 5 ports them, and this is the one commit point where `pytest -q` is not fully green. That is why Step 5 deselects them.
 
 - [ ] **Step 6: Look at it in a browser**
 
@@ -1151,7 +1188,7 @@ def _pick(driver, text):
     ).click()
 ```
 
-`_pick` builds an attribute selector with a quoted string, so it cannot be used for prompts containing a single quote — the hostile-input test below picks by index instead.
+`_pick` builds an attribute selector from a quoted string, so it cannot be used for a prompt containing a single quote **or a newline** — a raw newline inside a CSS string token is a parse error and Firefox raises `InvalidSelectorException`. The hostile-input and multiline tests below click the first row by position instead.
 
 Remove the now-unused `Select` import from the selenium imports. Leave `Keys` and `WebDriverWait` — both are still used.
 
@@ -1263,7 +1300,9 @@ def test_multiline_prompt_survives_a_round_trip(page):
     _submit(page, multiline)
     _textarea(page).clear()
 
-    _pick(page, multiline)
+    # Not _pick(): a raw newline inside a CSS string token is a parse error,
+    # so the attribute selector raises InvalidSelectorException.
+    page.find_element(By.CSS_SELECTOR, f"#{_RESULTS_ID} button[data-prompt]").click()
 
     assert _textarea(page).get_attribute("value") == multiline
 ```
@@ -1300,7 +1339,7 @@ Expected: PASS, or a clean skip if headless Firefox or the htmx CDN is unavailab
 source venv/bin/activate && pytest -q
 ```
 
-Expected: all green, roughly 172 tests (173 from Task 3, minus the two deleted select tests, plus the new search test).
+Expected: all green, 174 tests (175 from Task 4, minus the two deleted select-specific tests, plus the new search-narrowing test).
 
 - [ ] **Step 5: Commit**
 
