@@ -1,0 +1,46 @@
+{#- The picker list. Rendered both by GET / (first paint) and GET /prompts
+    (every keystroke), so there is exactly one way the list can look.
+
+    Highlighting loops (chunk, is_match) pairs rather than interpolating a
+    pre-built HTML string: Jinja autoescapes every chunk, so a prompt full of
+    <script> renders as text and no |safe is needed anywhere. -#}
+
+{%- macro prompt_row(row) -%}
+<button type="button"
+        data-prompt="{{ row.text }}"
+        title="{{ row.text }}"
+        class="w-full text-left flex gap-3 items-start px-3 py-2 rounded-lg
+               hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400">
+  <span class="flex-1 text-sm text-gray-700 break-words">
+    {%- for chunk, is_match in row.segments -%}
+      {%- if is_match -%}<mark class="bg-yellow-200 rounded-sm">{{ chunk }}</mark>
+      {%- else -%}{{ chunk }}{%- endif -%}
+    {%- endfor -%}
+  </span>
+  <span class="text-xs text-gray-400 shrink-0 pt-0.5">&times;{{ row.use_count }}</span>
+</button>
+{%- endmacro -%}
+
+{% if regex_error %}
+  <p class="text-sm text-amber-700 px-3 py-2">{{ t.prompt_bad_regex }}</p>
+{% elif (query and (not prompts)) %}
+  <p class="text-sm text-gray-500 px-3 py-2">{{ t.prompt_no_matches }}</p>
+{% else %}
+  {% if pinned %}
+    <p class="text-xs uppercase tracking-wide text-gray-400 px-3 pt-1">
+      {{ t.prompt_favourites }}
+    </p>
+    <div class="divide-y divide-gray-100">
+      {% for row in pinned %}{{ prompt_row(row) }}{% endfor %}
+    </div>
+    <hr class="my-1 border-gray-200">
+  {% endif %}
+  <div class="divide-y divide-gray-100">
+    {% for row in prompts %}{{ prompt_row(row) }}{% endfor %}
+  </div>
+  {% if (prompts | length) < total %}
+    <p class="text-xs text-gray-400 px-3 py-1">
+      {{ t.prompt_showing.format(shown=(prompts | length), total=total) }}
+    </p>
+  {% endif %}
+{% endif %}

@@ -24,6 +24,11 @@ _STRINGS = {
         "model_image_edit":  "Edit model (image→image)",
         "model_video_text":  "Video model (text→video)",
         "model_video_image": "Video model (image→video)",
+        "prompt_search": "Search prompts",
+        "prompt_favourites": "Most used",
+        "prompt_no_matches": "No prompts match.",
+        "prompt_bad_regex": "Invalid regular expression.",
+        "prompt_showing": "Showing {shown} of {total} matches.",
     },
     "de": {
         "title": "KI-Bild- & Videogenerator",
@@ -50,6 +55,11 @@ _STRINGS = {
         "model_image_edit":  "Bearbeitungsmodell (Bild→Bild)",
         "model_video_text":  "Videomodell (Text→Video)",
         "model_video_image": "Videomodell (Bild→Video)",
+        "prompt_search": "Prompts durchsuchen",
+        "prompt_favourites": "Am häufigsten genutzt",
+        "prompt_no_matches": "Keine passenden Prompts.",
+        "prompt_bad_regex": "Ungültiger regulärer Ausdruck.",
+        "prompt_showing": "Zeige {shown} von {total} Treffern.",
     },
 }
 

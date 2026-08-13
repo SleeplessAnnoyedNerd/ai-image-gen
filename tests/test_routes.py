@@ -432,9 +432,10 @@ def test_index_trims_long_history_labels(client):
 
     # Full text survives in the option value...
     assert f'value="{long_prompt}"' in body
-    # ...but the visible label is trimmed to 40 chars plus an ellipsis.
-    assert f'>{"z" * 40}…<' in body
-    assert f'>{"z" * 41}' not in body
+    # ...but the visible label inside the <option> is trimmed to 40 chars.
+    # The partial also renders the prompt in a <span> with a longer snippet,
+    # so we assert on the <option> content specifically.
+    assert f'>{"z" * 40}…</option>' in body
 
 
 def test_index_escapes_history_entries(client):
@@ -517,3 +518,111 @@ def test_generate_does_not_write_into_the_project_root(client):
         canary.unlink(missing_ok=True)
         if (created_cache_dir and cache_dir.exists() and (not any(cache_dir.iterdir()))):
             cache_dir.rmdir()
+
+
+def test_prompts_endpoint_lists_recent_when_no_query(client):
+    from services import prompt_store
+
+    prompt_store.add("a previously used prompt")
+    resp = client.get("/prompts")
+
+    assert resp.status_code == 200
+    assert b"a previously used prompt" in resp.data
+
+
+def test_prompts_endpoint_filters_by_query(client):
+    from services import prompt_store
+
+    prompt_store.add("a red bikini")
+    prompt_store.add("a blue coat")
+
+    body = client.get("/prompts?q=bikini").data.decode()
+
+    assert "a red bikini" in body
+    assert "a blue coat" not in body
+
+
+def test_prompts_endpoint_marks_the_match(client):
+    from services import prompt_store
+
+    prompt_store.add("a red bikini")
+
+    body = client.get("/prompts?q=bikini").data.decode()
+
+    assert "<mark" in body
+    assert ">bikini</mark>" in body
+
+
+def test_prompts_endpoint_reports_an_invalid_pattern_without_erroring(client):
+    from services import prompt_store
+
+    prompt_store.add("anything")
+    resp = client.get("/prompts?q=/foo(/")
+
+    assert resp.status_code == 200
+    assert b"anything" not in resp.data
+    assert b"Invalid regular expression." in resp.data
+
+
+def test_min_use_count_hides_rare_prompts_from_the_list_but_not_from_search(client, cfg):
+    """The central design decision, and the only thing keeping the counter
+    honest: the cutoff trims the default list and nothing else."""
+    from services import prompt_store
+
+    cfg.prompt_min_use_count = 3
+    prompt_store.add("used exactly once")
+
+    assert b"used exactly once" not in client.get("/prompts").data
+    assert b"used exactly once" in client.get("/prompts?q=exactly").data
+
+
+def test_blank_query_is_treated_as_no_query_not_as_no_matches(client):
+    """htmx sends ?q=%20 for a lone space. A raw truthiness check would
+    render 'no matches' for what the user sees as an empty box."""
+    from services import prompt_store
+
+    prompt_store.add("a previously used prompt")
+
+    assert b"a previously used prompt" in client.get("/prompts?q=%20").data
+
+
+def test_pinned_prompts_are_not_repeated_in_the_recent_list(client):
+    from services import prompt_store
+
+    prompt_store.add("a favourite")
+    prompt_store.add("a favourite")
+    prompt_store.add("a one-off")
+
+    body = client.get("/prompts").data.decode()
+
+    # Count the attribute, not the bare text: each row renders the prompt
+    # three times over (data-prompt, title, and the visible chunk), so
+    # body.count("a favourite") is 3 even when the dedup is working.
+    assert body.count('data-prompt="a favourite"') == 1
+
+
+def test_prompt_html_is_escaped_in_the_results(client):
+    from services import prompt_store
+
+    prompt_store.add('<script>alert("x")</script>')
+
+    body = client.get("/prompts").data.decode()
+
+    assert "<script>alert" not in body
+    assert "&lt;script&gt;" in body
+
+
+def test_index_renders_the_results_partial_on_first_paint(client):
+    from services import prompt_store
+
+    prompt_store.add("a previously used prompt")
+    body = client.get("/").data.decode()
+
+    assert 'id="prompt-results"' in body
+    assert "a previously used prompt" in body
+
+
+def test_picker_is_absent_on_an_empty_database(client):
+    body = client.get("/").data.decode()
+
+    assert "data-prompt" not in body

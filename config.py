@@ -118,6 +118,7 @@ class Config:
     secret_key: str
     sd_api_url: str               # InvokeAI base URL, empty = disabled
     sd_model: str                 # InvokeAI model name
+    prompt_min_use_count: int = 1  # default-list cutoff; search ignores it
 
     @classmethod
     def from_settings(cls) -> "Config":
@@ -138,6 +139,7 @@ class Config:
             secret_key = str(_require("flask", "secret_key")),
             sd_api_url = str(_get("sd", "api_url", "")),
             sd_model = str(_get("sd", "model", "")),
+            prompt_min_use_count = int(_get("prompts", "min_use_count", "1")),
         )
 
 

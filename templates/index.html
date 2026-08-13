@@ -32,6 +32,9 @@
         <option value="{{ p.text }}">{{ p.text[:40] | replace('\n', ' ') }}{% if p.text | length > 40 %}…{% endif %}</option>
         {% endfor %}
       </select>
+      <div id="prompt-results">
+        {% include "partials/prompt_results.html" %}
+      </div>
     </div>
 
     <!-- Prompt -->

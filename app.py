@@ -86,6 +86,24 @@ def create_app(cfg: Config | None = None) -> Flask:
     # Pages                                                                #
     # ------------------------------------------------------------------ #
 
+    def _picker_context(query: str = ""):
+        """Context for partials/prompt_results.html.
+
+        Pinned rows also satisfy recent()'s WHERE clause, so they are filtered
+        out here -- the store has no cross-query knowledge. This can leave 22
+        rows instead of 25; that is fine, do not over-fetch to compensate.
+        """
+        if (query):
+            rows, regex_error, total = prompt_store.search(query)
+            return {"pinned": [], "prompts": rows, "query": query,
+                    "regex_error": regex_error, "total": total}
+        pinned = prompt_store.top(3)
+        seen = {row.text for row in pinned}
+        prompts = [row for row in prompt_store.recent(25, cfg.prompt_min_use_count)
+                   if (row.text not in seen)]
+        return {"pinned": pinned, "prompts": prompts, "query": "",
+                "regex_error": False, "total": len(prompts)}
+
     @app.get("/")
     def index():
         image_backends = {
@@ -100,8 +118,16 @@ def create_app(cfg: Config | None = None) -> Flask:
             image_default_backend=cfg.image_default_backend,
             video_models_image=cfg.video_model_image,
             video_models_text=cfg.video_model_text,
-            prompts=prompt_store.recent(25),
+            **_picker_context(),
         )
+
+    @app.get("/prompts")
+    def prompts():
+        # Strip here, not only inside search(): htmx sends ?q=%20 for a lone
+        # space, which is truthy but means "no query".
+        query = request.args.get("q", "").strip()
+        return render_template("partials/prompt_results.html", t=t(),
+                               **_picker_context(query))
 
     @app.post("/lang")
     def set_lang():
