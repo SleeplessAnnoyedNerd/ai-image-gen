@@ -221,7 +221,7 @@ def test_every_match_in_the_window_is_marked_not_just_the_first():
 
     rows, _, _ = prompt_store.search("cat")
 
-    assert [chunk for chunk, is_match in rows[0].segments if is_match] == ["cat"] * 3
+    assert [chunk for chunk, is_match in rows[0].segments if (is_match)] == ["cat"] * 3
 
 
 def test_anchored_regex_still_produces_highlighting():

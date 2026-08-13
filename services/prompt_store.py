@@ -97,8 +97,10 @@ def _compile(query: str) -> tuple[list | None, bool]:
             return ([re.compile(q[1:-1], re.IGNORECASE)], False)
         except re.error:
             return (None, True)
-    # re.escape keeps % and _ literal for free, and re.IGNORECASE is
-    # Unicode-aware, so "größe" finds "Größe".
+    # re.escape keeps % and _ literal for free, and re.IGNORECASE handles
+    # simple Unicode case folding — "größe" finds "Größe", but "grosse"
+    # will not find "Größe" (that needs full case folding, which re does
+    # not do). Acceptable for a single-user tool with known input languages.
     return ([re.compile(re.escape(term), re.IGNORECASE) for term in q.split()], False)
 
 
@@ -112,7 +114,9 @@ def _segments(text: str, patterns: list) -> list[tuple[str, bool]]:
     spans = []
     for rx in patterns:
         for match in rx.finditer(text):
-            # Zero-length matches (/a*/, /^/) would render as empty <mark>s.
+            # Zero-length matches (/a*/, /^/, /$/) are dropped: they would
+            # render as empty <mark>s and there is nothing to highlight.
+            # The row still appears in results — correct, just unmarked.
             if (match.end() > match.start()):
                 spans.append((match.start(), match.end()))
     spans.sort()

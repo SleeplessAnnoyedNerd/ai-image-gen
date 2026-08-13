@@ -141,6 +141,15 @@ def _pick(driver, text):
     ).click()
 
 
+def _pick_first(driver):
+    """Pick the first rendered row by position. Use when the prompt text
+    contains characters that break CSS attribute selectors (single quotes,
+    raw newlines)."""
+    driver.find_element(
+        By.CSS_SELECTOR, f"#{_RESULTS_ID} button[data-prompt]"
+    ).click()
+
+
 def _js_errors(driver):
     return driver.execute_script("return window.__errs || []")
 
@@ -165,7 +174,7 @@ def test_picker_is_empty_on_a_fresh_install(page):
     assert _values(page) == []
 
 
-def test_list_appears_after_first_submit_without_a_reload(page):
+def test_list_appears_after_first_submit(page):
     _submit(page, _LONG)
 
     assert _values(page) == [_LONG]
@@ -245,9 +254,8 @@ def test_quotes_and_angle_brackets_survive_a_round_trip(page):
     _submit(page, hostile)
     _textarea(page).clear()
 
-    # Not _pick(): the text contains a double quote, which would break the
-    # attribute selector.
-    page.find_element(By.CSS_SELECTOR, f"#{_RESULTS_ID} button[data-prompt]").click()
+    # Double quote breaks the attribute selector in _pick(), so pick by position.
+    _pick_first(page)
 
     assert _textarea(page).get_attribute("value") == hostile
     assert page.find_elements(By.CSS_SELECTOR, f"#{_RESULTS_ID} [onmouseover]") == []
@@ -260,9 +268,8 @@ def test_multiline_prompt_survives_a_round_trip(page):
     _submit(page, multiline)
     _textarea(page).clear()
 
-    # Not _pick(): a raw newline inside a CSS string token is a parse error,
-    # so the attribute selector raised InvalidSelectorException.
-    page.find_element(By.CSS_SELECTOR, f"#{_RESULTS_ID} button[data-prompt]").click()
+    # Raw newline inside a CSS string token is a parse error, so pick by position.
+    _pick_first(page)
 
     assert _textarea(page).get_attribute("value") == multiline
 

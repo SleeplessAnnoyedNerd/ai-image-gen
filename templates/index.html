@@ -22,7 +22,7 @@
     <input id="prompt-search" name="q" type="search"
            placeholder="{{ t.prompt_search }}"
            hx-get="/prompts"
-           hx-trigger="keyup changed delay:250ms, search"
+           hx-trigger="input changed delay:250ms, search"
            hx-target="#prompt-results"
            class="w-full border border-gray-300 rounded-lg p-2 text-sm
                   focus:outline-none focus:ring-2 focus:ring-blue-400">
@@ -86,8 +86,13 @@
         //
         // The search input lives outside the form, so its own /prompts
         // requests do not bubble back into this handler.
-        document.querySelector('form[hx-post]').addEventListener('htmx:afterRequest', function() {
-          search.value = '';
+        document.querySelector('form[hx-post]').addEventListener('htmx:afterRequest', function(evt) {
+          // Always refresh: add() runs before the backend call, so the list
+          // changes on failures too. Only wipe the search box on success —
+          // a failed POST should not destroy the user's active search.
+          if (evt.detail.successful) {
+            search.value = '';
+          }
           htmx.trigger(search, 'search');
         });
       })();

@@ -32,6 +32,11 @@ frequently-used prompts to the top of the default list.
   dir anyway, because `app.py:20` chdirs into it at import time. The coupling is
   implicit and slightly fragile, but it works for every `data_dir` value, not
   just the default — and untangling it is not this design's job.
+- **No arrow-key listbox navigation.** The old `<select>` had native
+  arrow-key support; the button list is Tab/Enter only. Search mitigates this —
+  typing narrows the list to a handful of rows, so tabbing through them is
+  fast. Adding keyboard navigation to a dynamic htmx-rendered list would need
+  focus management, aria roles, and a roving tabindex — a project in itself.
 
 ## Decisions
 

@@ -93,6 +93,7 @@ def create_app(cfg: Config | None = None) -> Flask:
         out here -- the store has no cross-query knowledge. This can leave 22
         rows instead of 25; that is fine, do not over-fetch to compensate.
         """
+        query = query.strip()
         if (query):
             rows, regex_error, total = prompt_store.search(query)
             return {"pinned": [], "prompts": rows, "query": query,
@@ -123,9 +124,7 @@ def create_app(cfg: Config | None = None) -> Flask:
 
     @app.get("/prompts")
     def prompts():
-        # Strip here, not only inside search(): htmx sends ?q=%20 for a lone
-        # space, which is truthy but means "no query".
-        query = request.args.get("q", "").strip()
+        query = request.args.get("q", "")
         return render_template("partials/prompt_results.html", t=t(),
                                **_picker_context(query))
 
