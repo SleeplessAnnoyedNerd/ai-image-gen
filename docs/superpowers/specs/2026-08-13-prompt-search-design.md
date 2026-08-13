@@ -122,6 +122,8 @@ match:
 
 ```python
 q = query.strip()
+if (not q):
+    return ([], False, 0)
 if ((len(q) >= 3) and q.startswith("/") and q.endswith("/")):
     try:
         patterns = [re.compile(q[1:-1], re.IGNORECASE)]
@@ -155,8 +157,9 @@ Then `SELECT text, use_count FROM prompts ORDER BY used_at DESC`, filter with
 `matches`, count every hit but keep only the first `limit`. `min_count` is not
 a parameter here — search sees everything, by design.
 
-An empty query returns `([], False, 0)`; the caller uses `recent()`/`top()`
-instead.
+The empty-query guard is not optional decoration: without it `"".split()` is
+`[]`, `all([])` is `True`, and *every* row would match. The caller uses
+`recent()`/`top()` for that case instead.
 
 **Accepted risk: no regex timeout.** Python's `re` cannot be interrupted, so a
 valid but catastrophic pattern (`/(a+)+$/`) against a 2000-character prompt can
@@ -177,8 +180,8 @@ reads as `row.use_count` and adding a field later does not break unpacking.
    full text**, never over a window slice. Slicing first would break anchors
    and lookbehind: `/end$/` matches the full text but not a window cut short of
    the end, so the row would match and then render with nothing highlighted.
-2. Drop zero-length spans (`/^/`, `/a*/` and friends match empty at every
-   position; emitting them produces stray empty `<mark>` elements).
+2. Drop zero-length spans (`/a*/` matches empty at every position, `/^/` at
+   position 0; emitting them produces stray empty `<mark>` elements).
 3. Sort and merge overlapping or touching spans, so a character is never
    emitted twice.
 4. Window: 60 characters before the first surviving span, 140 after — clamped
@@ -202,12 +205,13 @@ prompt_min_use_count: int = 1  # default-list cutoff; search ignores it
 
 populated in `from_settings()` with `int(_get("prompts", "min_use_count", 1))`.
 
-The default is not cosmetic: `tests/conftest.py` and
-`tests/test_routes.py::test_index_shows_backend_select_with_multiple_backends`
-both construct `Config(...)` by hand. A required field would break every route
-test with a `TypeError` in the fixture before any new test could run. The field
-genuinely has a sensible default everywhere, so giving it one is the honest fix
-rather than editing two call sites.
+The default is not cosmetic. Ten places construct `Config(...)` by hand:
+`tests/conftest.py`,
+`tests/test_routes.py::test_index_shows_backend_select_with_multiple_backends`,
+and four apiece in `tests/test_image_gen.py` and `tests/test_video_gen.py`. A
+required field would `TypeError` in the `cfg` fixture before any new test could
+run. The field genuinely has a sensible default everywhere, so giving it one
+beats editing ten call sites.
 
 ### `settings.toml` / `settings.example.toml`
 
@@ -245,8 +249,11 @@ def prompts():
     return render_template("partials/prompt_results.html", ...)
 ```
 
-- Empty `q` → same pinned + recent context as first paint.
-- Non-empty `q` → `search()` results, `pinned` empty, `regex_error` forwarded.
+- `q.strip()` empty → same pinned + recent context as first paint. Strip at the
+  route, not only inside `search()`: htmx sends `?q=%20` for a lone space, which
+  is truthy but means "no query", and a raw truthiness check would render "no
+  matches" for a blank search box.
+- Otherwise → `search()` results, `pinned` empty, `regex_error` forwarded.
 - When results hit the cap, pass `total` so the partial can render
   "showing 50 of N".
 
@@ -373,23 +380,43 @@ TDD: each test is written and seen to fail before the code that satisfies it.
 
 ### `tests/test_dropdown_browser.py`
 
-This file holds 12 Selenium tests written against `#prompt-history` and
-`#prompt-history-wrap`. Every one of them breaks when the `<select>` is
-removed, so the file is **ported, not deleted**:
+Eleven of this file's twelve Selenium tests are written against
+`#prompt-history` / `#prompt-history-wrap` and break when the `<select>` is
+removed, so the file is **ported, not deleted**.
+`test_dummy_backend_renders_a_decodable_512x512_png` touches neither and is
+left alone.
 
 - `test_undo_after_picking_restores_typed_text` is the important one and must
   keep passing unchanged in intent — it is the guard on the `insertText`
   decision above.
+- `test_dropdown_appears_after_first_submit_without_a_reload`,
+  `test_second_prompt_goes_to_the_top` and
+  `test_resubmitting_moves_to_top_without_duplicating` become the tests for the
+  new refresh path (clear the box, re-trigger, list is current). That path is
+  the only genuinely new JavaScript in this design, so it must not lose its
+  coverage in the port.
 - Picking a row fills the textarea; a prompt containing quotes and one
   containing newlines round-trip correctly through `data-prompt`.
-- The blur/`selectedIndex` reset tests have no analogue on a button list and
-  are dropped — a button has no sticky selection to reset.
+- The blur/`selectedIndex` reset and closed-select arrow-key tests have no
+  analogue on a button list and are dropped — a button has no sticky selection
+  to reset and no keyboard-scrubbing behaviour to guard against.
 - Add one test that typing in the search box narrows the rendered list.
 
 ### Existing tests to update
 
-`tests/test_prompt_store.py` currently asserts against plain strings
-(`recent() == ["a sunset over water"]`, `len(recent()[0])`). With the `Row`
-NamedTuple these become `[r.text for r in recent()]` and `len(recent()[0].text)`.
-The `<select>`-markup assertions in `tests/test_routes.py` move to the results
-partial. Nothing is deleted without a replacement.
+The `Row` NamedTuple breaks every existing string comparison against
+`recent()`. These are all of them:
+
+- `tests/test_prompt_store.py` — `recent() == ["a sunset over water"]` and
+  `len(recent()[0])` become `[r.text for r in recent()]` and
+  `len(recent()[0].text)`.
+- `tests/test_routes.py:355` (`test_generate_records_prompt_in_history`) and
+  `:370` (`test_generate_records_prompt_even_when_request_is_rejected`) assert
+  `"…" in prompt_store.recent()`. String membership against a list of `Row`
+  is silently always `False`, so both need `[r.text for r in …]`. Easy to miss
+  precisely because the failure is a plain assertion, not a `TypeError`.
+- `test_index_history_wrapper_visible_when_populated` (:400) loses the wrapper
+  it looks for and is rewritten against the results partial.
+
+The remaining `<select>`-markup assertions in `tests/test_routes.py` move to the
+results partial. Nothing is deleted without a replacement.
