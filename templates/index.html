@@ -13,29 +13,29 @@
     </button>
   </div>
 
+  <!-- Prompt picker: outside the form on purpose. It is a picker, not form
+       data -- left inside, the search term would be POSTed to /generate. -->
+  <div>
+    <label class="block text-sm font-medium text-gray-600 mb-1" for="prompt-search">
+      {{ t.prompt_search }}
+    </label>
+    <input id="prompt-search" name="q" type="search"
+           placeholder="{{ t.prompt_search }}"
+           hx-get="/prompts"
+           hx-trigger="keyup changed delay:250ms, search"
+           hx-target="#prompt-results"
+           class="w-full border border-gray-300 rounded-lg p-2 text-sm
+                  focus:outline-none focus:ring-2 focus:ring-blue-400">
+    <div id="prompt-results" class="mt-1 max-h-64 overflow-y-auto">
+      {% include "partials/prompt_results.html" %}
+    </div>
+  </div>
+
   <form hx-post="/generate"
         hx-target="#result-area"
         hx-swap="outerHTML"
         hx-encoding="multipart/form-data"
         class="space-y-6">
-
-    <!-- Recent prompts -->
-    <div id="prompt-history-wrap" {% if not prompts %}hidden{% endif %}>
-      <label class="block text-sm font-medium text-gray-600 mb-1" for="prompt-history">
-        {{ t.prompt_history }}
-      </label>
-      <select id="prompt-history"
-              class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
-                     focus:outline-none focus:ring-2 focus:ring-blue-400">
-        <option value="">— {{ t.prompt_history }} —</option>
-        {% for p in prompts %}
-        <option value="{{ p.text }}">{{ p.text[:40] | replace('\n', ' ') }}{% if p.text | length > 40 %}…{% endif %}</option>
-        {% endfor %}
-      </select>
-      <div id="prompt-results">
-        {% include "partials/prompt_results.html" %}
-      </div>
-    </div>
 
     <!-- Prompt -->
     <div>
@@ -50,73 +50,45 @@
 
     <script>
       (function() {
-        var wrap = document.getElementById('prompt-history-wrap');
-        var sel  = document.getElementById('prompt-history');
-        var ta   = document.querySelector('textarea[name="prompt"]');
-        var MAX  = 25;
+        var results = document.getElementById('prompt-results');
+        var search  = document.getElementById('prompt-search');
+        var ta      = document.querySelector('textarea[name="prompt"]');
 
-        function label(text) {
-          var flat = text.replace(/\n/g, ' ');
-          if (flat.length > 40) {
-            return (flat.slice(0, 40) + '…');
-          } else {
-            return flat;
-          }
-        }
-
-        sel.addEventListener('change', function() {
-          // Read this.value before focusing the textarea: ta.focus() fires
-          // 'blur' on sel synchronously, and the blur listener below resets
-          // selectedIndex to 0 — reading this.value after that point would
-          // read back the placeholder's empty value instead of the pick.
-          var picked = this.value;
-          if (picked) {
-            ta.focus();
-            ta.select();
-            // execCommand is deprecated, but it is the only way to make a
-            // programmatic edit undoable — measured in Firefox 140:
-            // setRangeText leaves no undo entry, insertText does. Losing an
-            // in-progress prompt to a stray pick should be recoverable.
-            document.execCommand('insertText', false, picked);
-          }
-        });
-
-        sel.addEventListener('blur', function() {
-          // Reset once focus leaves, so picking the same entry twice works.
-          this.selectedIndex = 0;
-        });
-
-        /* Keep the dropdown current: the form submits via htmx, so the page
-         * never reloads and the server-rendered list would otherwise go stale.
-         * A second htmx:configRequest listener is safe — listeners fire in
-         * registration order and this one touches only the select, while the
-         * upload handler below touches only evt.detail.parameters. */
-        document.querySelector('form[hx-post]').addEventListener('htmx:configRequest', function() {
-          var p = ta.value.trim();
-          if (!p) {
+        // Delegated: htmx replaces the contents of #prompt-results on every
+        // keystroke, so a listener bound to the buttons themselves would die
+        // with the first swap.
+        results.addEventListener('click', function(evt) {
+          var btn = evt.target.closest('button[data-prompt]');
+          if (!btn) {
             return;
           }
-          // Drop any existing entry with the same text. Compare values directly
-          // rather than building an attribute selector — CSS.escape escapes CSS
-          // identifiers, not quoted selector strings, so a prompt containing a
-          // double quote would break querySelector.
-          for (var i = (sel.options.length - 1); i >= 1; i--) {
-            if (sel.options[i].value === p) {
-              sel.remove(i);
-            }
-          }
-          var opt = document.createElement('option');
-          opt.value       = p;
-          opt.textContent = label(p);
-          // options[1] is undefined when only the placeholder remains;
-          // insertBefore(node, null) appends, which is what we want.
-          sel.insertBefore(opt, (sel.options[1] || null));
-          // The wrapper starts hidden on a fresh install; the first inserted
-          // option is the signal that there is now something to show.
-          wrap.hidden = false;
-          while (sel.options.length > (MAX + 1)) {
-            sel.remove(sel.options.length - 1);
-          }
+          ta.focus();
+          ta.select();
+          // execCommand is deprecated, but it is the only way to make a
+          // programmatic edit undoable — measured in Firefox 140:
+          // setRangeText leaves no undo entry, insertText does. Losing an
+          // in-progress prompt to a stray pick should be recoverable.
+          document.execCommand('insertText', false, btn.dataset.prompt);
+        });
+
+        // Keep the list current: the form submits via htmx, so the page never
+        // reloads and the server-rendered list would go stale.
+        //
+        // afterRequest, NOT configRequest: configRequest fires *before* the
+        // POST goes out, so the refresh GET would race POST /generate and
+        // usually read the database back before prompt_store.add() has run —
+        // returning a list without the prompt just submitted. afterRequest
+        // fires once the POST has completed and the row exists.
+        //
+        // Clearing the box first is also deliberate: refreshing with a stale
+        // query would render results for that query, which need not contain
+        // the new prompt either.
+        //
+        // The search input lives outside the form, so its own /prompts
+        // requests do not bubble back into this handler.
+        document.querySelector('form[hx-post]').addEventListener('htmx:afterRequest', function() {
+          search.value = '';
+          htmx.trigger(search, 'search');
         });
       })();
     </script>

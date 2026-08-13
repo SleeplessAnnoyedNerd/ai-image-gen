@@ -385,64 +385,50 @@ def test_generate_does_not_record_blank_prompt(client):
     assert prompt_store.recent() == []
 
 
-def test_index_history_wrapper_hidden_when_empty(client):
-    """Nothing is visible on a fresh install: the wrapper still renders (the
-    JS needs it to exist so the first post-submit prepend can unhide it),
-    but it carries the `hidden` attribute so a first-time user sees nothing."""
-    resp = client.get("/")
-    body = resp.data.decode("utf-8")
-    assert 'id="prompt-history-wrap"' in body
-    tag_start = body.index('id="prompt-history-wrap"')
-    tag_end = body.index(">", tag_start)
-    assert "hidden" in body[tag_start:tag_end]
+def test_index_shows_the_search_box(client):
+    body = client.get("/").data.decode()
+
+    assert 'id="prompt-search"' in body
+    assert 'name="q"' in body
 
 
-def test_index_history_wrapper_visible_when_populated(client):
+def test_index_lists_a_stored_prompt_as_a_button(client):
     from services import prompt_store
 
     prompt_store.add("a previously used prompt")
-    resp = client.get("/")
-    body = resp.data.decode("utf-8")
-    tag_start = body.index('id="prompt-history-wrap"')
-    tag_end = body.index(">", tag_start)
-    assert "hidden" not in body[tag_start:tag_end]
+    body = client.get("/").data.decode()
+
+    assert 'data-prompt="a previously used prompt"' in body
+    assert 'id="prompt-history"' not in body
 
 
-def test_index_shows_history_select_when_populated(client):
+def test_picker_is_outside_the_generate_form(client):
+    """Inside the form, the search box would be serialised into POST /generate
+    as a stray `q` field. /generate ignores unknown fields, so nothing would
+    visibly break — which is exactly why this needs a test."""
+    body = client.get("/").data.decode()
+
+    assert body.index('id="prompt-search"') < body.index('hx-post="/generate"')
+
+
+def test_index_renders_long_prompt_in_data_attribute(client):
     from services import prompt_store
 
-    prompt_store.add("a previously used prompt")
-    resp = client.get("/")
-    assert b'id="prompt-history"' in resp.data
-    assert b"a previously used prompt" in resp.data
-
-    # The select must never be serialised into the form POST.
-    body = resp.data.decode("utf-8")
-    tag_start = body.index('<select id="prompt-history"')
-    tag_end = body.index(">", tag_start)
-    assert "name=" not in body[tag_start:tag_end]
-
-
-def test_index_trims_long_history_labels(client):
-    from services import prompt_store
-
-    long_prompt = "z" * 100
+    long_prompt = "z" * 1000
     prompt_store.add(long_prompt)
-    body = client.get("/").data.decode("utf-8")
+    body = client.get("/").data.decode()
 
-    # Full text survives in the option value...
-    assert f'value="{long_prompt}"' in body
-    # ...but the visible label inside the <option> is trimmed to 40 chars.
-    # The partial also renders the prompt in a <span> with a longer snippet,
-    # so we assert on the <option> content specifically.
-    assert f'>{"z" * 40}…</option>' in body
+    # data-prompt carries the full text...
+    assert f'data-prompt="{long_prompt}"' in body
+    # ...but the visible snippet is shorter than the full text.
+    assert f'>{long_prompt}<' not in body
 
 
 def test_index_escapes_history_entries(client):
     from services import prompt_store
 
     prompt_store.add('<script>alert("x")</script>')
-    body = client.get("/").data.decode("utf-8")
+    body = client.get("/").data.decode()
     assert "<script>alert" not in body
     assert "&lt;script&gt;" in body
 
@@ -451,25 +437,18 @@ def test_index_escapes_quote_in_history_entry(client):
     from services import prompt_store
 
     prompt_store.add('a " onmouseover="alert(1)')
-    body = client.get("/").data.decode("utf-8")
+    body = client.get("/").data.decode()
     assert 'onmouseover="' not in body
 
 
-def test_index_history_label_flattens_newlines(client):
+def test_index_preserves_newlines_in_data_attribute(client):
     from services import prompt_store
 
     prompt_store.add("line one\nline two")
-    body = client.get("/").data.decode("utf-8")
+    body = client.get("/").data.decode()
 
-    # The option's value keeps the full text, newline included...
-    assert 'value="line one\nline two"' in body
-    # ...but the visible label has the newline replaced with a space.
-    tag_start = body.index('<option value="line one')
-    tag_end = body.index("</option>", tag_start)
-    label_start = body.index(">", tag_start) + 1
-    label_html = body[label_start:tag_end]
-    assert "\n" not in label_html
-    assert "line one line two" in label_html
+    # The data-prompt attribute keeps the full text, newline included.
+    assert 'data-prompt="line one\nline two"' in body
 
 
 def test_generate_does_not_write_into_the_project_root(client):
@@ -625,4 +604,6 @@ def test_index_renders_the_results_partial_on_first_paint(client):
 def test_picker_is_absent_on_an_empty_database(client):
     body = client.get("/").data.decode()
 
-    assert "data-prompt" not in body
+    # Assert on the attribute pattern, not the bare string: the JS contains
+    # 'button[data-prompt]' as a selector, which would false-positive.
+    assert 'data-prompt="' not in body
