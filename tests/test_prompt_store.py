@@ -99,6 +99,17 @@ def test_top_is_empty_when_nothing_has_been_reused():
     assert prompt_store.top() == []
 
 
+def test_top_respects_min_count():
+    """top() must agree with recent() on what 'hidden' means: a prompt below
+    the cutoff must not appear in either block."""
+    for _ in range(2):
+        prompt_store.add("used twice")
+    for _ in range(5):
+        prompt_store.add("used five times")
+
+    assert [r.text for r in prompt_store.top(3, min_count=3)] == ["used five times"]
+
+
 def test_keyword_search_is_order_independent():
     prompt_store.add("a red bikini on a beach")
     prompt_store.add("a blue dress in a field")

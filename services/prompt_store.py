@@ -168,17 +168,19 @@ def recent(n: int = 25, min_count: int = 1) -> list[Row]:
     return [Row(text, use_count, _segments(text, [])) for text, use_count in rows]
 
 
-def top(n: int = 3) -> list[Row]:
+def top(n: int = 3, min_count: int = 1) -> list[Row]:
     """The n most-used prompts, for pinning above the recent list.
 
-    use_count > 1 keeps a never-reused table from producing three arbitrary
-    'favourites'.
+    The cutoff is max(2, min_count): the floor of 2 keeps a never-reused
+    table from producing three arbitrary 'favourites', and the min_count
+    floor keeps pinned rows consistent with what recent() hides.
     """
+    cutoff = max(2, min_count)
     with _db() as conn:
         rows = conn.execute(
             "SELECT text, use_count FROM prompts "
-            "WHERE use_count > 1 ORDER BY use_count DESC, used_at DESC LIMIT ?",
-            (n,),
+            "WHERE use_count >= ? ORDER BY use_count DESC, used_at DESC LIMIT ?",
+            (cutoff, n),
         ).fetchall()
     return [Row(text, use_count, _segments(text, [])) for text, use_count in rows]
 

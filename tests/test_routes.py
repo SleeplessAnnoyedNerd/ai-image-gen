@@ -555,6 +555,19 @@ def test_min_use_count_hides_rare_prompts_from_the_list_but_not_from_search(clie
     assert b"used exactly once" in client.get("/prompts?q=exactly").data
 
 
+def test_min_use_count_hides_from_pinned_block_too(client, cfg):
+    """top() and recent() must agree: a prompt below the cutoff must not
+    appear in either the favourites block or the recent list."""
+    from services import prompt_store
+
+    cfg.prompt_min_use_count = 3
+    prompt_store.add("used twice")
+    prompt_store.add("used twice")
+
+    body = client.get("/prompts").data.decode()
+    assert 'data-prompt="used twice"' not in body
+
+
 def test_blank_query_is_treated_as_no_query_not_as_no_matches(client):
     """htmx sends ?q=%20 for a lone space. A raw truthiness check would
     render 'no matches' for what the user sees as an empty box."""

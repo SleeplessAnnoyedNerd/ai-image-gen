@@ -97,7 +97,7 @@ def create_app(cfg: Config | None = None) -> Flask:
             rows, regex_error, total = prompt_store.search(query)
             return {"pinned": [], "prompts": rows, "query": query,
                     "regex_error": regex_error, "total": total}
-        pinned = prompt_store.top(3)
+        pinned = prompt_store.top(3, cfg.prompt_min_use_count)
         seen = {row.text for row in pinned}
         prompts = [row for row in prompt_store.recent(25, cfg.prompt_min_use_count)
                    if (row.text not in seen)]

@@ -40,7 +40,9 @@ api_url = "http://192.168.0.78:9090"
 model = "Juggernaut XL v9"
 
 [prompts]
-# Prompts used fewer than this many times are hidden from the default list.
-# Search always sees every prompt regardless of this value. Every row starts
-# at 1 after the use_count migration, so raise this only once counts have grown.
+# Prompts used fewer than this many times are hidden from the default list
+# (both the recent section and the pinned favourites). Search always sees
+# every prompt regardless of this value. Every row starts at 1 after the
+# use_count migration, so raise this only once counts have grown — a prompt
+# you just generated will be missing from the list until it has been reused.
 min_use_count = 1
