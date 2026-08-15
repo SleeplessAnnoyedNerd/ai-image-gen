@@ -13,6 +13,7 @@
     </button>
   </div>
 
+  {% if show_history | default(false) %}
   <!-- Prompt picker: outside the form on purpose. It is a picker, not form
        data -- left inside, the search term would be POSTed to /generate. -->
   <div>
@@ -30,6 +31,7 @@
       {% include "partials/prompt_results.html" %}
     </div>
   </div>
+  {% endif %}
 
   <form hx-post="/generate"
         hx-target="#result-area"
@@ -48,6 +50,7 @@
                 placeholder="Describe what you want to create…"></textarea>
     </div>
 
+    {% if show_history | default(false) %}
     <script>
       (function() {
         var results = document.getElementById('prompt-results');
@@ -98,6 +101,7 @@
         });
       })();
     </script>
+    {% endif %}
 
     <!-- Image upload -->
     <div>

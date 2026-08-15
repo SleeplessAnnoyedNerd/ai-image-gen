@@ -109,8 +109,8 @@ def dummy_server(cfg):
 
 @pytest.fixture
 def page(browser, server):
-    """A loaded index page with a JS error collector attached."""
-    browser.get(server)
+    """A loaded /extend page with a JS error collector attached."""
+    browser.get(f"{server}/extend")
     if (browser.execute_script("return typeof window.htmx") == "undefined"):
         pytest.skip("htmx did not load from its CDN — these tests need network")
     # Our handlers all run on interaction, i.e. after this point.

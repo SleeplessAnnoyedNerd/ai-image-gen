@@ -17,6 +17,7 @@
       <span class="text-xs text-gray-400 font-mono">{{ git_hash }}</span>
       {% endif %}
       <form method="post" action="/lang">
+        <input type="hidden" name="next" value="{{ request.path }}">
         <button type="submit" name="lang" value="{{ t.lang_switch_target }}"
                 class="text-sm px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 font-medium">
           {{ t.lang_switch }}

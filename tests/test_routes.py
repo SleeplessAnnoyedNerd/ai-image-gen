@@ -21,6 +21,19 @@ def test_lang_switch(client):
     assert "KI-Bild" in resp.data.decode("utf-8")
 
 
+def test_lang_redirects_back_to_extend(client):
+    resp = client.post("/lang", data={"lang": "en", "next": "/extend"})
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/extend"
+
+
+def test_lang_rejects_malicious_next(client):
+    for bad in ("https://evil.com", "//evil.com", "/prompts", "/../etc"):
+        resp = client.post("/lang", data={"lang": "en", "next": bad})
+        assert resp.status_code == 302
+        assert resp.headers["Location"] == "/"
+
+
 def test_generate_image_job_starts(client):
     with patch("app.image_gen.generate_image", return_value=b"png-bytes"), \
          patch("app.threading.Thread") as mock_thread:
@@ -385,18 +398,18 @@ def test_generate_does_not_record_blank_prompt(client):
     assert prompt_store.recent() == []
 
 
-def test_index_shows_the_search_box(client):
-    body = client.get("/").data.decode()
+def test_extend_shows_the_search_box(client):
+    body = client.get("/extend").data.decode()
 
     assert 'id="prompt-search"' in body
     assert 'name="q"' in body
 
 
-def test_index_lists_a_stored_prompt_as_a_button(client):
+def test_extend_lists_a_stored_prompt_as_a_button(client):
     from services import prompt_store
 
     prompt_store.add("a previously used prompt")
-    body = client.get("/").data.decode()
+    body = client.get("/extend").data.decode()
 
     assert 'data-prompt="a previously used prompt"' in body
     assert 'id="prompt-history"' not in body
@@ -406,17 +419,17 @@ def test_picker_is_outside_the_generate_form(client):
     """Inside the form, the search box would be serialised into POST /generate
     as a stray `q` field. /generate ignores unknown fields, so nothing would
     visibly break — which is exactly why this needs a test."""
-    body = client.get("/").data.decode()
+    body = client.get("/extend").data.decode()
 
     assert body.index('id="prompt-search"') < body.index('hx-post="/generate"')
 
 
-def test_index_renders_long_prompt_in_data_attribute(client):
+def test_extend_renders_long_prompt_in_data_attribute(client):
     from services import prompt_store
 
     long_prompt = "z" * 1000
     prompt_store.add(long_prompt)
-    body = client.get("/").data.decode()
+    body = client.get("/extend").data.decode()
 
     # data-prompt carries the full text...
     assert f'data-prompt="{long_prompt}"' in body
@@ -424,28 +437,28 @@ def test_index_renders_long_prompt_in_data_attribute(client):
     assert f'>{long_prompt}<' not in body
 
 
-def test_index_escapes_history_entries(client):
+def test_extend_escapes_history_entries(client):
     from services import prompt_store
 
     prompt_store.add('<script>alert("x")</script>')
-    body = client.get("/").data.decode()
+    body = client.get("/extend").data.decode()
     assert "<script>alert" not in body
     assert "&lt;script&gt;" in body
 
 
-def test_index_escapes_quote_in_history_entry(client):
+def test_extend_escapes_quote_in_history_entry(client):
     from services import prompt_store
 
     prompt_store.add('a " onmouseover="alert(1)')
-    body = client.get("/").data.decode()
+    body = client.get("/extend").data.decode()
     assert 'onmouseover="' not in body
 
 
-def test_index_preserves_newlines_in_data_attribute(client):
+def test_extend_preserves_newlines_in_data_attribute(client):
     from services import prompt_store
 
     prompt_store.add("line one\nline two")
-    body = client.get("/").data.decode()
+    body = client.get("/extend").data.decode()
 
     # The data-prompt attribute keeps the full text, newline included.
     assert 'data-prompt="line one\nline two"' in body
@@ -604,19 +617,24 @@ def test_prompt_html_is_escaped_in_the_results(client):
     assert "&lt;script&gt;" in body
 
 
-def test_index_renders_the_results_partial_on_first_paint(client):
+def test_extend_renders_the_results_partial_on_first_paint(client):
     from services import prompt_store
 
     prompt_store.add("a previously used prompt")
-    body = client.get("/").data.decode()
+    body = client.get("/extend").data.decode()
 
     assert 'id="prompt-results"' in body
     assert "a previously used prompt" in body
 
 
-def test_picker_is_absent_on_an_empty_database(client):
+def test_picker_is_absent_on_root_route(client):
+    """Root route never shows the picker, regardless of database state."""
+    from services import prompt_store
+
+    prompt_store.add("a previously used prompt")
     body = client.get("/").data.decode()
 
     # Assert on the attribute pattern, not the bare string: the JS contains
     # 'button[data-prompt]' as a selector, which would false-positive.
     assert 'data-prompt="' not in body
+    assert 'id="prompt-search"' not in body

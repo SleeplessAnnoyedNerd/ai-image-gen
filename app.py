@@ -28,7 +28,7 @@ logger.add(
 )
 
 from flask import (
-    Flask, render_template, request, redirect, url_for,
+    Flask, render_template, request, redirect,
     session, send_file, abort, jsonify
 )
 from config import Config
@@ -105,12 +105,12 @@ def create_app(cfg: Config | None = None) -> Flask:
         return {"pinned": pinned, "prompts": prompts, "query": "",
                 "regex_error": False, "total": len(prompts)}
 
-    @app.get("/")
-    def index():
+    def _render_index(show_history: bool):
         image_backends = {
             name: {"model": bc.model, "model_edit": bc.model_edit}
             for name, bc in cfg.image_backends.items()
         }
+        ctx = _picker_context() if show_history else {"pinned": [], "prompts": [], "query": "", "regex_error": False, "total": 0}
         return render_template(
             "index.html",
             t=t(),
@@ -119,8 +119,17 @@ def create_app(cfg: Config | None = None) -> Flask:
             image_default_backend=cfg.image_default_backend,
             video_models_image=cfg.video_model_image,
             video_models_text=cfg.video_model_text,
-            **_picker_context(),
+            show_history=show_history,
+            **ctx,
         )
+
+    @app.get("/")
+    def index():
+        return _render_index(show_history=False)
+
+    @app.get("/extend")
+    def extend():
+        return _render_index(show_history=True)
 
     @app.get("/prompts")
     def prompts():
@@ -132,7 +141,11 @@ def create_app(cfg: Config | None = None) -> Flask:
     def set_lang():
         lang = request.form.get("lang", "en")
         session["lang"] = lang if lang in ("en", "de") else "en"
-        return redirect(url_for("index"))
+        # Redirect back to the page the user was on (allowlist: only our own routes)
+        next_url = request.form.get("next", "/")
+        if (next_url not in ("/", "/extend")):
+            next_url = "/"
+        return redirect(next_url)
 
     @app.get("/sd-status")
     def sd_status():
