@@ -187,6 +187,138 @@ def test_dashscope_missing_config_raises():
         generate_image(cfg, prompt="a cat")
 
 
+# --- MiniMax backend tests ---
+
+
+def _minimax_cfg():
+    """Helper to create a Config with a MiniMax backend as default."""
+    return Config(
+        image_backends={
+            "minimax": ImageBackend(
+                name="minimax",
+                api_url="https://api.minimax.io/v1/image_generation",
+                api_key="sk-test-key",
+                model=["image-01", "image-01-live"],
+                model_edit=["image-01", "image-01-live"],
+                api_version="",
+            ),
+        },
+        image_default_backend="minimax",
+        video_backend="fal", video_api_url="", video_api_key="",
+        video_api_version="", video_azure_path="",
+        video_model_image=[""], video_model_text=[""],
+        secret_key="test", sd_api_url="", sd_model="",
+    )
+
+
+def test_minimax_text_to_image():
+    """MiniMax backend: text-only prompt generates image, base64 returned."""
+    cfg = _minimax_cfg()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.ok = True
+    mock_response.json.return_value = {
+        "data": {"image_base64": [FAKE_B64]},
+        "id": "req-123",
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("services.image_gen._requests.post", return_value=mock_response) as mock_post:
+        result = generate_image(cfg, prompt="a cat wearing a hat")
+
+    assert (result == FAKE_PNG)
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert (payload["model"] == "image-01")
+    assert (payload["prompt"] == "a cat wearing a hat")
+    assert (payload["response_format"] == "base64")
+    assert ("subject_reference" not in payload)
+
+
+def test_minimax_image_to_image():
+    """MiniMax backend: prompt + reference image sends subject_reference as data URI."""
+    cfg = _minimax_cfg()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.ok = True
+    mock_response.json.return_value = {
+        "data": {"image_base64": [FAKE_B64]},
+        "id": "req-456",
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("services.image_gen._requests.post", return_value=mock_response) as mock_post:
+        result = generate_image(cfg, prompt="make it blue", images=[FAKE_PNG])
+
+    assert (result == FAKE_PNG)
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert (payload["model"] == "image-01")  # model_edit[0]
+    assert (payload["model"] == cfg.image_backends["minimax"].model_edit[0])
+    refs = payload["subject_reference"]
+    assert (len(refs) == 1)
+    assert (refs[0]["type"] == "character")
+    assert (refs[0]["image_file"].startswith("data:image/png;base64,"))
+
+
+def test_minimax_explicit_model_edit_overrides_default():
+    """Explicit model_edit param is sent verbatim on I2I."""
+    cfg = _minimax_cfg()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.ok = True
+    mock_response.json.return_value = {
+        "data": {"image_base64": [FAKE_B64]},
+        "id": "req-789",
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("services.image_gen._requests.post", return_value=mock_response) as mock_post:
+        generate_image(
+            cfg, prompt="make it blue", images=[FAKE_PNG], model_edit="image-01-live",
+        )
+
+    assert (mock_post.call_args.kwargs["json"]["model"] == "image-01-live")
+
+
+def test_minimax_missing_config_raises():
+    """MiniMax backend: raises ValueError when api_url is empty."""
+    cfg = Config(
+        image_backends={
+            "minimax": ImageBackend(
+                name="minimax", api_url="", api_key="",
+                model=["image-01"], model_edit=["image-01"],
+                api_version="",
+            ),
+        },
+        image_default_backend="minimax",
+        video_backend="fal", video_api_url="", video_api_key="",
+        video_api_version="", video_azure_path="",
+        video_model_image=[""], video_model_text=[""],
+        secret_key="test", sd_api_url="", sd_model="",
+    )
+    with pytest.raises(ValueError, match="IMAGE_API_URL"):
+        generate_image(cfg, prompt="a cat")
+
+
+def test_minimax_empty_response_raises():
+    """MiniMax backend: raises RuntimeError when image_base64 is empty."""
+    cfg = _minimax_cfg()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.ok = True
+    mock_response.json.return_value = {"data": {"image_base64": []}, "id": "req-empty"}
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("services.image_gen._requests.post", return_value=mock_response):
+        with pytest.raises(RuntimeError, match="no image_base64"):
+            generate_image(cfg, prompt="a cat")
+
+
 # --- _mime_and_b64 tests ---
 
 from services.image_gen import _mime_and_b64

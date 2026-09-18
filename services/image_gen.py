@@ -44,6 +44,8 @@ def generate_image(
         return _generate_azure(bc, prompt, first, model, model_edit)
     if backend == "dashscope":
         return _generate_dashscope(bc, prompt, images, model, model_edit)
+    if backend == "minimax":
+        return _generate_minimax(bc, prompt, first, model, model_edit)
     return _generate_openai(bc, prompt, first, model, model_edit)
 
 
@@ -235,6 +237,52 @@ def _raise_dashscope_error(resp):
     except Exception:
         message = resp.text
     raise RuntimeError(f"DashScope error {resp.status_code}: {message}")
+
+
+def _generate_minimax(
+    bc: ImageBackend,
+    prompt: str,
+    image_bytes: bytes | None,
+    model: str,
+    model_edit: str,
+) -> bytes:
+    if (not bc.api_url) or (not bc.api_key):
+        raise ValueError(
+            "MiniMax backend requires IMAGE_API_URL and IMAGE_API_KEY"
+        )
+
+    payload: dict = {
+        "model": model_edit if (image_bytes is not None) else model,
+        "prompt": prompt,
+        "response_format": "base64",
+    }
+    if (image_bytes is not None):
+        payload["subject_reference"] = [{
+            "type": "character",
+            "image_file": _mime_and_b64(image_bytes),
+        }]
+
+    headers = {
+        "Authorization": f"Bearer {bc.api_key}",
+        "Content-Type": "application/json",
+    }
+
+    logger.info(
+        "Generating image (minimax) | model={} prompt={!r} has_image={}",
+        payload["model"], prompt, image_bytes is not None,
+    )
+    resp = _requests.post(bc.api_url, json=payload, headers=headers)
+    if (not resp.ok):
+        logger.error("MiniMax image API error | status={} body={}", resp.status_code, resp.text)
+    resp.raise_for_status()
+
+    images = resp.json().get("data", {}).get("image_base64", [])
+    if (not images):
+        raise RuntimeError(f"MiniMax returned no image_base64: {resp.text}")
+
+    result = base64.b64decode(images[0])
+    logger.info("MiniMax image generation complete | size={} bytes", len(result))
+    return result
 
 
 # ------------------------------------------------------------------ #

@@ -9,7 +9,7 @@ secret_key = "SpayzDajoz"
 port = 5005
 
 [image]
-default_backend = "dashscope"
+default_backend = "minimax"
 
 [image.dashscope]
 api_url = "https://token-plan.ap-southeast-1.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
@@ -20,6 +20,11 @@ model_edit = ["wan2.7-image"]
 api_url = "https://fal.run"
 model = ["fal-ai/flux/schnell"]
 model_edit = ["fal-ai/gpt-image-1.5/edit", "fal-ai/flux-2/klein/9b/base/edit/lora"]
+
+[image.minimax]
+api_url = "https://api.minimax.io/v1/image_generation"
+model = ["image-01", "image-01-live"]
+model_edit = ["image-01", "image-01-live"]
 
 [image.dummy]
 api_url    = "dummy://local"
