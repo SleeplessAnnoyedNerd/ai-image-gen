@@ -34,7 +34,7 @@ def _dashscope_cfg():
         image_default_backend="dashscope",
         video_backend="fal", video_api_url="", video_api_key="",
         video_api_version="", video_azure_path="",
-        video_model_image=[""], video_model_text=[""],
+        video_model=[""],
         secret_key="test", sd_api_url="", sd_model="",
     )
 
@@ -180,7 +180,7 @@ def test_dashscope_missing_config_raises():
         image_default_backend="dashscope",
         video_backend="fal", video_api_url="", video_api_key="",
         video_api_version="", video_azure_path="",
-        video_model_image=[""], video_model_text=[""],
+        video_model=[""],
         secret_key="test", sd_api_url="", sd_model="",
     )
     with pytest.raises(ValueError, match="IMAGE_API_URL"):
@@ -206,7 +206,7 @@ def _minimax_cfg():
         image_default_backend="minimax",
         video_backend="fal", video_api_url="", video_api_key="",
         video_api_version="", video_azure_path="",
-        video_model_image=[""], video_model_text=[""],
+        video_model=[""],
         secret_key="test", sd_api_url="", sd_model="",
     )
 
@@ -297,7 +297,7 @@ def test_minimax_missing_config_raises():
         image_default_backend="minimax",
         video_backend="fal", video_api_url="", video_api_key="",
         video_api_version="", video_azure_path="",
-        video_model_image=[""], video_model_text=[""],
+        video_model=[""],
         secret_key="test", sd_api_url="", sd_model="",
     )
     with pytest.raises(ValueError, match="IMAGE_API_URL"):
@@ -483,7 +483,7 @@ def test_non_dashscope_receives_first_image_only():
         image_default_backend="openai",
         video_backend="fal", video_api_url="", video_api_key="",
         video_api_version="", video_azure_path="",
-        video_model_image=[""], video_model_text=[""],
+        video_model=[""],
         secret_key="test", sd_api_url="", sd_model="",
     )
 
@@ -517,7 +517,7 @@ def _dummy_cfg():
         image_default_backend="dummy",
         video_backend="fal", video_api_url="", video_api_key="",
         video_api_version="", video_azure_path="",
-        video_model_image=[""], video_model_text=[""],
+        video_model=[""],
         secret_key="test", sd_api_url="", sd_model="",
     )
 
@@ -561,3 +561,140 @@ def test_generate_dummy_makes_no_http_call():
     assert result[:8] == b"\x89PNG\r\n\x1a\n"
     mock_post.assert_not_called()
     mock_get.assert_not_called()
+
+
+# --- DashScope: model capability table ---
+
+def _dashscope_qwen_cfg():
+    """Config whose dashscope backend serves qwen-image-3.0-pro."""
+    return Config(
+        image_backends={
+            "dashscope": ImageBackend(
+                name="dashscope",
+                api_url="https://ws.example.com/api/v1/services/aigc/multimodal-generation/generation",
+                api_key="sk-test-key",
+                model=["qwen-image-3.0-pro"],
+                model_edit=["qwen-image-3.0-pro"],
+                api_version="",
+            ),
+        },
+        image_default_backend="dashscope",
+        video_backend="fal", video_api_url="", video_api_key="",
+        video_api_version="", video_azure_path="",
+        video_model=[""],
+        secret_key="test", sd_api_url="", sd_model="",
+    )
+
+
+def _dashscope_response(content_blocks):
+    """Mock a DashScope image response with the given content blocks."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "output": {
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"content": content_blocks},
+            }]
+        },
+        "request_id": "req-1",
+    }
+    resp.raise_for_status = MagicMock()
+    img = MagicMock()
+    img.content = FAKE_PNG
+    img.raise_for_status = MagicMock()
+    return resp, img
+
+
+def test_dashscope_sends_requested_size():
+    """The resolution chosen in the UI reaches the API as the size parameter."""
+    cfg = _dashscope_qwen_cfg()
+    resp, img = _dashscope_response([{"type": "image", "image": "https://cdn.example.com/i.png"}])
+
+    with patch("services.image_gen._requests.post", return_value=resp) as mock_post, \
+         patch("services.image_gen._requests.get", return_value=img):
+        generate_image(cfg, prompt="a cat", resolution="1920*1080")
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["parameters"]["size"] == "1920*1080"
+
+
+def test_dashscope_auto_size_omits_the_parameter():
+    """"auto" means: let the model pick the resolution."""
+    cfg = _dashscope_qwen_cfg()
+    resp, img = _dashscope_response([{"type": "image", "image": "https://cdn.example.com/i.png"}])
+
+    with patch("services.image_gen._requests.post", return_value=resp) as mock_post, \
+         patch("services.image_gen._requests.get", return_value=img):
+        generate_image(cfg, prompt="a cat", resolution="auto")
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert "size" not in payload["parameters"]
+
+
+def test_dashscope_unsupported_size_falls_back_to_the_model_default():
+    """A size the model does not accept must not reach the API."""
+    cfg = _dashscope_qwen_cfg()
+    resp, img = _dashscope_response([{"type": "image", "image": "https://cdn.example.com/i.png"}])
+
+    with patch("services.image_gen._requests.post", return_value=resp) as mock_post, \
+         patch("services.image_gen._requests.get", return_value=img):
+        generate_image(cfg, prompt="a cat", resolution="9999*9999")
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["parameters"]["size"] == "1024*1024"
+
+
+def test_dashscope_known_model_gets_its_default_size():
+    """Without an explicit resolution the model's default is used."""
+    cfg = _dashscope_cfg()
+    resp, img = _dashscope_response([{"type": "image", "image": "https://cdn.example.com/i.png"}])
+
+    with patch("services.image_gen._requests.post", return_value=resp) as mock_post, \
+         patch("services.image_gen._requests.get", return_value=img):
+        generate_image(cfg, prompt="a cat")
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["parameters"]["size"] == "1K"
+
+
+def test_dashscope_response_without_type_is_parsed():
+    """qwen-image-3.0-pro answers with an image block that has no "type" key."""
+    cfg = _dashscope_qwen_cfg()
+    resp, img = _dashscope_response([{"image": "https://cdn.example.com/i.png"}])
+
+    with patch("services.image_gen._requests.post", return_value=resp), \
+         patch("services.image_gen._requests.get", return_value=img):
+        result = generate_image(cfg, prompt="a cat")
+
+    assert result == FAKE_PNG
+
+
+def test_dashscope_qwen_rejects_more_than_three_reference_images():
+    """qwen-image-3.0-pro takes at most three reference images."""
+    cfg = _dashscope_qwen_cfg()
+    resp, img = _dashscope_response([{"type": "image", "image": "https://cdn.example.com/i.png"}])
+
+    with patch("services.image_gen._requests.post", return_value=resp) as mock_post, \
+         patch("services.image_gen._requests.get", return_value=img):
+        with pytest.raises(ValueError, match="at most 3"):
+            generate_image(cfg, prompt="a cat", images=[FAKE_PNG] * 4,
+                           model_edit="qwen-image-3.0-pro")
+
+    mock_post.assert_not_called()
+
+
+def test_dashscope_qwen_accepts_three_reference_images():
+    """Three reference images are within the limit."""
+    cfg = _dashscope_qwen_cfg()
+    resp, img = _dashscope_response([{"type": "image", "image": "https://cdn.example.com/i.png"}])
+
+    with patch("services.image_gen._requests.post", return_value=resp) as mock_post, \
+         patch("services.image_gen._requests.get", return_value=img):
+        generate_image(cfg, prompt="a cat", images=[FAKE_PNG] * 3,
+                       model_edit="qwen-image-3.0-pro")
+
+    payload = mock_post.call_args.kwargs["json"]
+    content = payload["input"]["messages"][0]["content"]
+    assert len(content) == 4
+    assert content[0] == {"text": "a cat"}

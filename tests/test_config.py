@@ -159,8 +159,7 @@ def test_from_settings_single_backend_single_models(monkeypatch):
         },
         "video": {
             "api_url": "https://vid.example.com",
-            "model_image": ["my/vid-img-model"],
-            "model_text": ["my/vid-txt-model"],
+            "model": ["my/vid-model"],
         },
     }, {
         "image": {"openai": {"api_key": "img-key"}},
@@ -173,8 +172,7 @@ def test_from_settings_single_backend_single_models(monkeypatch):
     assert bc.model_edit == ["my/edit-model"]
     assert bc.api_key == "img-key"
     assert cfg.image_default_backend == "openai"
-    assert cfg.video_model_image == ["my/vid-img-model"]
-    assert cfg.video_model_text == ["my/vid-txt-model"]
+    assert cfg.video_model == ["my/vid-model"]
     assert cfg.secret_key == "s3cr3t"
 
 
@@ -196,8 +194,7 @@ def test_from_settings_multiple_backends(monkeypatch):
         },
         "video": {
             "api_url": "https://vid.example.com",
-            "model_image": ["my/vid-img-model"],
-            "model_text": ["vid-x", "vid-y", "vid-z"],
+            "model": ["vid-x", "vid-y", "vid-z"],
         },
     }, {
         "image": {
@@ -211,7 +208,7 @@ def test_from_settings_multiple_backends(monkeypatch):
     assert cfg.image_backends["dashscope"].model == ["model-a", "model-b"]
     assert cfg.image_backends["fal"].model == ["fal-model"]
     assert cfg.image_default_backend == "fal"
-    assert cfg.video_model_text == ["vid-x", "vid-y", "vid-z"]
+    assert cfg.video_model == ["vid-x", "vid-y", "vid-z"]
 
 
 def test_from_settings_backend_without_api_key_excluded(monkeypatch):
@@ -232,8 +229,7 @@ def test_from_settings_backend_without_api_key_excluded(monkeypatch):
         },
         "video": {
             "api_url": "https://vid.example.com",
-            "model_image": ["m"],
-            "model_text": ["m"],
+            "model": ["m"],
         },
     }, {
         "image": {"dashscope": {"api_key": "ds-key"}},
@@ -255,8 +251,7 @@ def test_from_settings_default_backend_falls_back(monkeypatch):
         },
         "video": {
             "api_url": "https://vid.example.com",
-            "model_image": ["m"],
-            "model_text": ["m"],
+            "model": ["m"],
         },
     }, {
         "image": {"dashscope": {"api_key": "ds-key"}},
@@ -278,8 +273,7 @@ def test_from_settings_no_image_backends_raises(monkeypatch):
         },
         "video": {
             "api_url": "https://vid.example.com",
-            "model_image": ["m"],
-            "model_text": ["m"],
+            "model": ["m"],
         },
     }, {
         "video": {"api_key": "vid-key"},
@@ -298,8 +292,7 @@ def test_from_settings_backend_missing_models_raises(monkeypatch):
         },
         "video": {
             "api_url": "https://vid.example.com",
-            "model_image": ["m"],
-            "model_text": ["m"],
+            "model": ["m"],
         },
     }, {
         "image": {"dashscope": {"api_key": "ds-key"}},
@@ -320,8 +313,7 @@ def test_from_settings_backend_missing_api_url_raises(monkeypatch):
         },
         "video": {
             "api_url": "https://vid.example.com",
-            "model_image": ["m"],
-            "model_text": ["m"],
+            "model": ["m"],
         },
     }, {
         "image": {"dashscope": {"api_key": "ds-key"}},
@@ -344,8 +336,7 @@ def test_from_settings_defaults(monkeypatch):
         },
         "video": {
             "api_url": "https://vid.example.com",
-            "model_image": ["m"],
-            "model_text": ["m"],
+            "model": ["m"],
         },
     }, {
         "image": {"dashscope": {"api_key": "img-key"}},
@@ -380,8 +371,7 @@ def test_from_settings_real_toml_files(tmp_path, monkeypatch):
         '[video]\n'
         'backend = "fal"\n'
         'api_url = "https://vid.example.com"\n'
-        'model_image = ["vid-img"]\n'
-        'model_text = ["vid-txt"]\n'
+        'model = ["vid-model"]\n'
     )
     secrets_file = tmp_path / ".secrets.toml"
     secrets_file.write_text(

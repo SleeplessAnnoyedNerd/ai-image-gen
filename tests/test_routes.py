@@ -343,7 +343,7 @@ def test_index_shows_backend_select_with_multiple_backends():
         image_default_backend="openai",
         video_backend="fal", video_api_url="https://v", video_api_key="k",
         video_api_version="", video_azure_path="",
-        video_model_image=["m"], video_model_text=["m"],
+        video_model=["m"],
         secret_key="s", sd_api_url="", sd_model="",
     )
     app = create_app(cfg)
@@ -638,3 +638,57 @@ def test_picker_is_absent_on_root_route(client):
     # 'button[data-prompt]' as a selector, which would false-positive.
     assert 'data-prompt="' not in body
     assert 'id="prompt-search"' not in body
+
+
+# --- advanced mode: model and parameter selection reaches the services ---
+
+def test_generate_forwards_image_resolution(client):
+    """The resolution chosen in the advanced panel reaches the image service."""
+    with patch("app.image_gen.generate_image", return_value=b"png-bytes") as mock_gen, \
+         patch("app.threading.Thread") as mock_thread:
+        mock_thread.side_effect = lambda target, args, daemon: \
+            type("T", (), {"start": lambda self: target(*args)})()
+
+        client.post("/generate", data={
+            "output_type": "image",
+            "prompt": "a cat",
+            "image_resolution": "1920*1080",
+        })
+
+    assert mock_gen.call_args.kwargs["resolution"] == "1920*1080"
+
+
+def test_generate_forwards_video_model_and_parameters(client):
+    """The video model, duration, resolution and ratio reach the video service."""
+    with patch("app.video_gen.start_video_job", return_value={"task_id": "t"}) as mock_start, \
+         patch("app.video_gen.poll_video_job", return_value={"status": "done", "video_data": b"mp4"}), \
+         patch("app.threading.Thread") as mock_thread:
+        mock_thread.side_effect = lambda target, args, daemon: \
+            type("T", (), {"start": lambda self: target(*args)})()
+
+        client.post("/generate", data={
+            "output_type": "video",
+            "prompt": "a cat",
+            "video_model": "happyhorse-1.1-t2v",
+            "video_duration": "7",
+            "video_resolution": "1080P",
+            "video_ratio": "9:16",
+        })
+
+    kwargs = mock_start.call_args.kwargs
+    assert kwargs["model"] == "happyhorse-1.1-t2v"
+    assert kwargs["duration"] == "7"
+    assert kwargs["resolution"] == "1080P"
+    assert kwargs["ratio"] == "9:16"
+
+
+def test_index_offers_the_configured_video_models(client, cfg):
+    """Every configured video model shows up in the advanced panel."""
+    cfg.video_model = ["happyhorse-1.1-t2v", "wan3.0-video"]
+    resp = client.get("/")
+    body = resp.data.decode()
+    assert 'value="happyhorse-1.1-t2v"' in body
+    assert 'value="wan3.0-video"' in body
+    assert 'name="video_duration"' in body
+    assert 'name="video_resolution"' in body
+    assert 'name="video_ratio"' in body

@@ -2,6 +2,7 @@ import io
 import os
 import subprocess
 import threading
+from dataclasses import asdict
 from datetime import datetime
 from loguru import logger
 import requests as _requests
@@ -34,6 +35,7 @@ from flask import (
 from config import Config
 from translations import get_strings
 from services import job_store, image_gen, video_gen, sd_gen, prompt_store
+from services.model_specs import IMAGE_SPECS, VIDEO_SPECS
 
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB per file
 _MAX_IMAGES = 10
@@ -117,8 +119,9 @@ def create_app(cfg: Config | None = None) -> Flask:
             sd_enabled=bool(cfg.sd_api_url),
             image_backends=image_backends,
             image_default_backend=cfg.image_default_backend,
-            video_models_image=cfg.video_model_image,
-            video_models_text=cfg.video_model_text,
+            image_specs={name: asdict(spec) for name, spec in IMAGE_SPECS.items()},
+            video_models=cfg.video_model,
+            video_specs={name: asdict(spec) for name, spec in VIDEO_SPECS.items()},
             show_history=show_history,
             **ctx,
         )
@@ -193,8 +196,12 @@ def create_app(cfg: Config | None = None) -> Flask:
 
         image_model       = request.form.get("image_model")       or bc.model[0]
         image_model_edit  = request.form.get("image_model_edit")  or bc.model_edit[0]
-        video_model_image = request.form.get("video_model_image") or cfg.video_model_image[0]
-        video_model_text  = request.form.get("video_model_text")  or cfg.video_model_text[0]
+        image_resolution  = request.form.get("image_resolution")
+        image_resolution_edit = request.form.get("image_resolution_edit")
+        video_model       = request.form.get("video_model") or cfg.video_model[0]
+        video_duration    = request.form.get("video_duration")
+        video_resolution  = request.form.get("video_resolution")
+        video_ratio       = request.form.get("video_ratio")
 
         job_id = job_store.create_job()
         logger.info("Job created | job_id={} output_type={} prompt={!r} n_images={}", job_id, output_type, prompt, len(images))
@@ -202,7 +209,8 @@ def create_app(cfg: Config | None = None) -> Flask:
         if output_type == "image":
             threading.Thread(
                 target=_run_image_job,
-                args=(cfg, job_id, prompt, images, image_backend, image_model, image_model_edit),
+                args=(cfg, job_id, prompt, images, image_backend, image_model,
+                      image_model_edit, image_resolution, image_resolution_edit),
                 daemon=True,
             ).start()
         elif output_type == "sd":
@@ -214,7 +222,8 @@ def create_app(cfg: Config | None = None) -> Flask:
         else:
             threading.Thread(
                 target=_run_video_job,
-                args=(cfg, job_id, prompt, images, video_model_image, video_model_text),
+                args=(cfg, job_id, prompt, images, video_model,
+                      video_duration, video_resolution, video_ratio),
                 daemon=True,
             ).start()
 
@@ -297,9 +306,13 @@ def create_app(cfg: Config | None = None) -> Flask:
 # ------------------------------------------------------------------ #
 
 def _run_image_job(cfg: Config, job_id: str, prompt: str, images: list[bytes],
-                   backend: str, model: str, model_edit: str):
+                   backend: str, model: str, model_edit: str,
+                   resolution: str | None, resolution_edit: str | None):
     try:
-        data = image_gen.generate_image(cfg, prompt, images, backend=backend, model=model, model_edit=model_edit)
+        data = image_gen.generate_image(
+            cfg, prompt, images, backend=backend, model=model, model_edit=model_edit,
+            resolution=resolution, resolution_edit=resolution_edit,
+        )
         try:
             _cache_artifact(job_id, data, "png")
         except Exception:
@@ -326,12 +339,13 @@ def _run_sd_job(cfg: Config, job_id: str, prompt: str, images: list[bytes]):
 
 
 def _run_video_job(cfg: Config, job_id: str, prompt: str, images: list[bytes],
-                   model_image: str, model_text: str):
+                   model: str, duration: str | None, resolution: str | None,
+                   ratio: str | None):
     import time
     try:
         submit = video_gen.start_video_job(
             cfg, prompt, images,
-            model_image=model_image, model_text=model_text,
+            model=model, duration=duration, resolution=resolution, ratio=ratio,
         )
         for _ in range(300):
             time.sleep(2)

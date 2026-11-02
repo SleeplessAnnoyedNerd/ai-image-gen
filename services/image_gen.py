@@ -4,6 +4,7 @@ import requests as _requests
 from loguru import logger
 from openai import OpenAI, AzureOpenAI
 from config import Config, ImageBackend
+from services.model_specs import image_spec
 
 
 def _mime_and_b64(img_bytes: bytes) -> str:
@@ -29,6 +30,8 @@ def generate_image(
     backend: str | None = None,
     model: str | None = None,
     model_edit: str | None = None,
+    resolution: str | None = None,
+    resolution_edit: str | None = None,
 ) -> bytes:
     images = images or []
     backend = backend or cfg.image_default_backend
@@ -43,7 +46,9 @@ def generate_image(
     if backend == "azure":
         return _generate_azure(bc, prompt, first, model, model_edit)
     if backend == "dashscope":
-        return _generate_dashscope(bc, prompt, images, model, model_edit)
+        return _generate_dashscope(
+            bc, prompt, images, model, model_edit, resolution, resolution_edit,
+        )
     if backend == "minimax":
         return _generate_minimax(bc, prompt, first, model, model_edit)
     return _generate_openai(bc, prompt, first, model, model_edit)
@@ -165,6 +170,8 @@ def _generate_dashscope(
     images: list[bytes],
     model: str,
     model_edit: str,
+    resolution: str | None,
+    resolution_edit: str | None,
 ) -> bytes:
     if not bc.api_url or not bc.api_key:
         raise ValueError(
@@ -172,11 +179,17 @@ def _generate_dashscope(
         )
 
     active_model = model_edit if images else model
+    active_size = resolution_edit if images else resolution
     url = bc.api_url.rstrip("/")
 
-    content = [{"text": prompt}]
-    for img_bytes in images:
-        content.append({"image": _mime_and_b64(img_bytes)})
+    _check_dashscope_image_count(active_model, len(images))
+
+    content = _build_dashscope_content(prompt, images)
+
+    parameters: dict = {"n": 1}
+    size = _dashscope_size(active_model, active_size)
+    if size:
+        parameters["size"] = size
 
     payload = {
         "model": active_model,
@@ -186,10 +199,7 @@ def _generate_dashscope(
                 "content": content,
             }]
         },
-        "parameters": {
-            "size": "1K",
-            "n": 1,
-        },
+        "parameters": parameters,
     }
 
     headers = {
@@ -198,8 +208,8 @@ def _generate_dashscope(
     }
 
     logger.info(
-        "Generating image (dashscope) | model={} prompt={!r} n_images={}",
-        active_model, prompt, len(images),
+        "Generating image (dashscope) | model={} prompt={!r} n_images={} size={}",
+        active_model, prompt, len(images), size,
     )
     resp = _requests.post(url, json=payload, headers=headers)
     if not resp.ok:
@@ -214,7 +224,9 @@ def _generate_dashscope(
     content_list = choices[0].get("message", {}).get("content", [])
     image_url = None
     for item in content_list:
-        if item.get("type") == "image":
+        # qwen-image-3.0-pro answers with {"image": url} and no "type" key,
+        # older models add "type": "image".
+        if item.get("image"):
             image_url = item.get("image")
             break
 
@@ -227,6 +239,47 @@ def _generate_dashscope(
 
     logger.info("DashScope image generation complete | size={} bytes", len(img_resp.content))
     return img_resp.content
+
+
+def _build_dashscope_content(prompt: str, images: list[bytes]) -> list[dict]:
+    """Build the message content blocks for a DashScope image request.
+
+    The docs put the reference images before the text block, but the API
+    accepts either order -- verified against qwen-image-3.0-pro and
+    wan2.7-image -- so one order serves both.
+    """
+    content = [{"text": prompt}]
+    for img_bytes in images:
+        content.append({"image": _mime_and_b64(img_bytes)})
+    return content
+
+
+def _check_dashscope_image_count(model: str, count: int) -> None:
+    """Reject more reference images than the model accepts."""
+    spec = image_spec(model)
+    if (spec is None) or (count <= spec.max_images):
+        return
+    raise ValueError(
+        f"{model} accepts at most {spec.max_images} reference image(s), got {count}"
+    )
+
+
+def _dashscope_size(model: str, requested: str | None) -> str | None:
+    """Resolve the "size" parameter. None means: omit it."""
+    spec = image_spec(model)
+    if spec is None:
+        # Model not in the capability table: keep the historic 1K default.
+        return requested or "1K"
+    value = requested or spec.default_size
+    if value not in spec.sizes:
+        logger.warning(
+            "Unsupported size for model | model={} requested={!r} using={}",
+            model, requested, spec.default_size,
+        )
+        value = spec.default_size
+    if value == "auto":
+        return None
+    return value
 
 
 def _raise_dashscope_error(resp):

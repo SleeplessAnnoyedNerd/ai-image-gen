@@ -113,8 +113,7 @@ class Config:
     video_api_key: str
     video_api_version: str        # Azure API version (only used for azure backend)
     video_azure_path: str         # Azure path template
-    video_model_image: list[str]  # image-to-video models; first is default
-    video_model_text: list[str]   # text-to-video models; first is default
+    video_model: list[str]        # selectable video models; first is default
     secret_key: str
     sd_api_url: str               # InvokeAI base URL, empty = disabled
     sd_model: str                 # InvokeAI model name
@@ -134,8 +133,7 @@ class Config:
                 "video", "azure_path",
                 "openai/deployments/{deployment}/videos/generations",
             )),
-            video_model_image = _parse_list(_require("video", "model_image")),
-            video_model_text = _parse_list(_require("video", "model_text")),
+            video_model = _parse_list(_require("video", "model")),
             secret_key = str(_require("flask", "secret_key")),
             sd_api_url = str(_get("sd", "api_url", "")),
             sd_model = str(_get("sd", "model", "")),

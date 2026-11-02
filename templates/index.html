@@ -254,6 +254,13 @@
         </select>
       </div>
 
+      <div id="image-resolution-field" class="hidden">
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.image_resolution }}</label>
+        <select name="image_resolution" id="image-resolution-select"
+                class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
+                       focus:outline-none focus:ring-2 focus:ring-blue-400"></select>
+      </div>
+
       <div id="image-model-edit-field" {% if image_backends[image_default_backend].model_edit | length <= 1 %}class="hidden"{% endif %}>
         <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_image_edit }}</label>
         <select name="image_model_edit" id="image-model-edit-select"
@@ -265,11 +272,49 @@
         </select>
       </div>
 
+      <div id="image-resolution-edit-field" class="hidden">
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.image_resolution }}</label>
+        <select name="image_resolution_edit" id="image-resolution-edit-select"
+                class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
+                       focus:outline-none focus:ring-2 focus:ring-blue-400"></select>
+      </div>
+
       <script>
         (function() {
           var backendModels = {{ image_backends | tojson }};
+          var imageSpecs = {{ image_specs | tojson }};
+          var videoSpecs = {{ video_specs | tojson }};
+
+          function fill(select, values, selected) {
+            select.innerHTML = '';
+            values.forEach(function(v) {
+              var opt = document.createElement('option');
+              opt.value = v;
+              opt.textContent = v;
+              if (v === selected) { opt.selected = true; }
+              select.appendChild(opt);
+            });
+          }
+
+          function fillDurations(select, spec) {
+            var values = [];
+            for (var d = spec.duration_min; d <= spec.duration_max; d++) {
+              values.push(String(d));
+            }
+            fill(select, values, String(spec.default_duration));
+          }
+
+          function setVisible(id, visible) {
+            var el = document.getElementById(id);
+            if (el) { el.classList.toggle('hidden', !visible); }
+          }
+
+          // ---- image side ----
           var backendSelect = document.getElementById('image-backend-select');
-          if (!backendSelect) { return; }
+          var modelSelect = document.getElementById('image-model-select');
+          var editSelect = document.getElementById('image-model-edit-select');
+          var sizeSelect = document.getElementById('image-resolution-select');
+          var sizeEditSelect = document.getElementById('image-resolution-edit-select');
 
           function rebuild(select, models) {
             select.innerHTML = '';
@@ -281,43 +326,111 @@
             });
           }
 
-          backendSelect.addEventListener('change', function() {
-            var models = backendModels[backendSelect.value];
-            var modelField = document.getElementById('image-model-field');
-            var editField  = document.getElementById('image-model-edit-field');
-            rebuild(document.getElementById('image-model-select'), models.model);
-            rebuild(document.getElementById('image-model-edit-select'), models.model_edit);
-            modelField.classList.toggle('hidden', models.model.length <= 1);
-            editField.classList.toggle('hidden', models.model_edit.length <= 1);
-          });
+          function refreshSizes() {
+            var spec = imageSpecs[modelSelect.value];
+            if (spec) {
+              fill(sizeSelect, spec.sizes, spec.default_size);
+              setVisible('image-resolution-field', true);
+            } else {
+              sizeSelect.innerHTML = '';
+              setVisible('image-resolution-field', false);
+            }
+            var editSpec = imageSpecs[editSelect.value];
+            if (editSpec) {
+              fill(sizeEditSelect, editSpec.sizes, editSpec.default_size);
+              setVisible('image-resolution-edit-field', true);
+            } else {
+              sizeEditSelect.innerHTML = '';
+              setVisible('image-resolution-edit-field', false);
+            }
+          }
+
+          if (backendSelect) {
+            backendSelect.addEventListener('change', function() {
+              var models = backendModels[backendSelect.value];
+              var modelField = document.getElementById('image-model-field');
+              var editField  = document.getElementById('image-model-edit-field');
+              rebuild(modelSelect, models.model);
+              rebuild(editSelect, models.model_edit);
+              modelField.classList.toggle('hidden', models.model.length <= 1);
+              editField.classList.toggle('hidden', models.model_edit.length <= 1);
+              refreshSizes();
+            });
+          }
+          if (modelSelect) {
+            modelSelect.addEventListener('change', refreshSizes);
+            editSelect.addEventListener('change', refreshSizes);
+            refreshSizes();
+          }
+
+          // ---- video side ----
+          var videoSelect = document.getElementById('video-model-select');
+          var durationSelect = document.getElementById('video-duration-select');
+          var resolutionSelect = document.getElementById('video-resolution-select');
+          var ratioSelect = document.getElementById('video-ratio-select');
+
+          function refreshVideoParams() {
+            var spec = videoSpecs[videoSelect.value];
+            if (!spec) {
+              durationSelect.innerHTML = '';
+              resolutionSelect.innerHTML = '';
+              ratioSelect.innerHTML = '';
+              setVisible('video-duration-field', false);
+              setVisible('video-resolution-field', false);
+              setVisible('video-ratio-field', false);
+              return;
+            }
+            fillDurations(durationSelect, spec);
+            fill(resolutionSelect, spec.resolutions, spec.default_resolution);
+            setVisible('video-duration-field', true);
+            setVisible('video-resolution-field', true);
+            if (spec.ratios) {
+              fill(ratioSelect, spec.ratios, spec.default_ratio);
+              setVisible('video-ratio-field', true);
+            } else {
+              ratioSelect.innerHTML = '';
+              setVisible('video-ratio-field', false);
+            }
+          }
+
+          if (videoSelect) {
+            videoSelect.addEventListener('change', refreshVideoParams);
+            refreshVideoParams();
+          }
         })();
       </script>
 
-      {% if video_models_text | length > 1 %}
-      <div>
-        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_video_text }}</label>
-        <select name="video_model_text"
+      <div id="video-model-field" {% if video_models | length <= 1 %}class="hidden"{% endif %}>
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_video }}</label>
+        <select name="video_model" id="video-model-select"
                 class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
                        focus:outline-none focus:ring-2 focus:ring-blue-400">
-          {% for m in video_models_text %}
+          {% for m in video_models %}
           <option value="{{ m }}">{{ m }}</option>
           {% endfor %}
         </select>
       </div>
-      {% endif %}
 
-      {% if video_models_image | length > 1 %}
-      <div>
-        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.model_video_image }}</label>
-        <select name="video_model_image"
+      <div id="video-duration-field" class="hidden">
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.video_duration }}</label>
+        <select name="video_duration" id="video-duration-select"
                 class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
-                       focus:outline-none focus:ring-2 focus:ring-blue-400">
-          {% for m in video_models_image %}
-          <option value="{{ m }}">{{ m }}</option>
-          {% endfor %}
-        </select>
+                       focus:outline-none focus:ring-2 focus:ring-blue-400"></select>
       </div>
-      {% endif %}
+
+      <div id="video-resolution-field" class="hidden">
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.video_resolution }}</label>
+        <select name="video_resolution" id="video-resolution-select"
+                class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
+                       focus:outline-none focus:ring-2 focus:ring-blue-400"></select>
+      </div>
+
+      <div id="video-ratio-field" class="hidden">
+        <label class="block text-sm font-medium text-gray-600 mb-1">{{ t.video_ratio }}</label>
+        <select name="video_ratio" id="video-ratio-select"
+                class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white
+                       focus:outline-none focus:ring-2 focus:ring-blue-400"></select>
+      </div>
     </div>
 
     <!-- Output type buttons -->

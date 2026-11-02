@@ -4,27 +4,29 @@ from urllib.parse import urlparse
 from loguru import logger
 from config import Config
 from services.image_gen import _mime_and_b64
+from services.model_specs import VideoSpec, video_spec
 
 
 def start_video_job(
     cfg: Config,
     prompt: str,
     images: list[bytes] | None = None,
-    model_image: str | None = None,
-    model_text: str | None = None,
+    model: str | None = None,
+    duration: int | str | None = None,
+    resolution: str | None = None,
+    ratio: str | None = None,
 ) -> dict:
     """Submit a video generation job. Returns a submit-context dict for poll_video_job."""
     images = images or []
-    model_image = model_image or cfg.video_model_image[0]
-    model_text = model_text or cfg.video_model_text[0]
+    model = model or cfg.video_model[0]
     first = images[0] if images else None
     if cfg.video_backend == "azure":
-        return _start_azure(cfg, prompt, first, model_image, model_text)
+        return _start_azure(cfg, prompt, first, model)
     if cfg.video_backend == "dashscope":
-        return _start_dashscope(cfg, prompt, images, model_image, model_text)
+        return _start_dashscope(cfg, prompt, images, model, duration, resolution, ratio)
     if cfg.video_backend == "dummy":
         return _start_dummy()
-    return _start_fal(cfg, prompt, first, model_image, model_text)
+    return _start_fal(cfg, prompt, first, model)
 
 
 def poll_video_job(cfg: Config, submit: dict) -> dict:
@@ -49,18 +51,15 @@ def _start_fal(
     cfg: Config,
     prompt: str,
     image_bytes: bytes | None,
-    model_image: str,
-    model_text: str,
+    model: str,
 ) -> dict:
     if image_bytes:
-        model = model_image
         data_uri = _mime_and_b64(image_bytes)
         payload = {
             "prompt": prompt,
             "image_url": data_uri,
         }
     else:
-        model = model_text
         payload = {"prompt": prompt}
 
     url = f"{cfg.video_api_url}/{model}"
@@ -113,10 +112,9 @@ def _start_azure(
     cfg: Config,
     prompt: str,
     image_bytes: bytes | None,
-    model_image: str,
-    model_text: str,
+    model: str,
 ) -> dict:
-    deployment = model_image if image_bytes else model_text
+    deployment = model
     base = cfg.video_api_url.rstrip("/")
     path = cfg.video_azure_path.format(deployment=deployment)
     url = f"{base}/{path}?api-version={cfg.video_api_version}"
@@ -186,15 +184,16 @@ def _start_dashscope(
     cfg: Config,
     prompt: str,
     images: list[bytes],
-    model_image: str,
-    model_text: str,
+    model: str,
+    duration: int | str | None,
+    resolution: str | None,
+    ratio: str | None,
 ) -> dict:
     if not cfg.video_api_url or not cfg.video_api_key:
         raise ValueError(
             "DashScope backend requires VIDEO_API_URL and VIDEO_API_KEY"
         )
 
-    active_model = model_image if images else model_text
     url = cfg.video_api_url.rstrip("/")  # strip trailing slash to avoid double //
 
     headers = {
@@ -203,12 +202,13 @@ def _start_dashscope(
         "X-DashScope-Async": "enable",
     }
 
-    use_media = "wan2.6" not in active_model
-    payload = _build_dashscope_video_payload(active_model, prompt, images, use_media=use_media)
+    payload = _build_dashscope_video_payload(
+        model, prompt, images, duration, resolution, ratio,
+    )
 
     logger.info(
-        "Submitting DashScope video job | model={} prompt={!r} n_images={} format={}",
-        active_model, prompt, len(images), "media" if use_media else "img_url",
+        "Submitting DashScope video job | model={} prompt={!r} n_images={} params={}",
+        model, prompt, len(images), payload["parameters"],
     )
     resp = requests.post(url, json=payload, headers=headers)
     if not resp.ok:
@@ -225,9 +225,60 @@ def _build_dashscope_video_payload(
     model: str,
     prompt: str,
     images: list[bytes],
-    use_media: bool,
+    duration: int | str | None = None,
+    resolution: str | None = None,
+    ratio: str | None = None,
 ) -> dict:
-    """Build video generation payload. use_media=True for media[] format, False for img_url format."""
+    """Build the video generation payload for a DashScope model.
+
+    Models in the capability table get their media type and parameter ranges
+    from that table; anything else falls back to the historic payload.
+    """
+    spec = video_spec(model)
+    if spec is None:
+        return _build_legacy_dashscope_payload(model, prompt, images)
+
+    _check_video_images(model, spec, len(images))
+
+    parameters: dict = {
+        "resolution": _pick_value(resolution, spec.resolutions, spec.default_resolution, model),
+        "duration": _pick_duration(duration, spec, model),
+        "watermark": False,
+    }
+    if spec.ratios:
+        parameters["ratio"] = _pick_value(ratio, spec.ratios, spec.default_ratio, model)
+
+    payload: dict = {
+        "model": model,
+        "input": {"prompt": prompt},
+        "parameters": parameters,
+    }
+
+    if images:
+        if spec.media == "first_frame":
+            payload["input"]["media"] = [
+                {"type": "first_frame", "url": _mime_and_b64(images[0])},
+            ]
+        else:
+            # ponytail: ~117MB for 10 x 5MB images
+            payload["input"]["media"] = [
+                {"type": "reference_image", "url": _mime_and_b64(img)} for img in images
+            ]
+
+    return payload
+
+
+def _build_legacy_dashscope_payload(
+    model: str,
+    prompt: str,
+    images: list[bytes],
+) -> dict:
+    """Payload for models outside the capability table (e.g. wan2.6).
+
+    wan2.6 takes the first image as img_url, every newer model takes a
+    media[] list.
+    """
+    use_media = "wan2.6" not in model
     payload: dict = {
         "model": model,
         "input": {"prompt": prompt},
@@ -239,7 +290,6 @@ def _build_dashscope_video_payload(
     }
 
     if images:
-        # ponytail: ~117MB for 10 x 5MB images
         if use_media:
             payload["input"]["media"] = [
                 {"type": "reference_image", "url": _mime_and_b64(img)} for img in images
@@ -248,6 +298,66 @@ def _build_dashscope_video_payload(
             payload["input"]["img_url"] = _mime_and_b64(images[0])
 
     return payload
+
+
+def _check_video_images(model: str, spec: VideoSpec, count: int) -> None:
+    """Reject an image count the model cannot take."""
+    if spec.media is None:
+        if count:
+            raise ValueError(
+                f"{model} is a text-to-video model and does not accept reference images"
+            )
+        return
+    if count < spec.min_images:
+        raise ValueError(
+            f"{model} needs at least {spec.min_images} reference image(s), got {count}"
+        )
+    if count > spec.max_images:
+        raise ValueError(
+            f"{model} accepts at most {spec.max_images} reference image(s), got {count}"
+        )
+
+
+def _pick_value(
+    requested: str | None,
+    allowed: tuple[str, ...],
+    default: str | None,
+    model: str,
+) -> str | None:
+    """Use the requested value when the model accepts it, else the default."""
+    if requested in allowed:
+        return requested
+    if requested is not None:
+        logger.warning(
+            "Unsupported value for model | model={} requested={!r} using={}",
+            model, requested, default,
+        )
+    return default
+
+
+def _pick_duration(
+    requested: int | str | None,
+    spec: VideoSpec,
+    model: str,
+) -> int:
+    """Clamp the requested duration into the range the model accepts."""
+    if requested is None:
+        return spec.default_duration
+    try:
+        value = int(requested)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Unusable duration for model | model={} requested={!r} using={}",
+            model, requested, spec.default_duration,
+        )
+        return spec.default_duration
+    clamped = max(spec.duration_min, min(spec.duration_max, value))
+    if clamped != value:
+        logger.warning(
+            "Duration out of range for model | model={} requested={} using={}",
+            model, value, clamped,
+        )
+    return clamped
 
 
 def _raise_dashscope_error(resp):

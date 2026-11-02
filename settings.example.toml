@@ -38,8 +38,8 @@ data_dir = "."
 # ── DashScope (Alibaba Cloud) ───────────────────────
 # [image.dashscope]
 # api_url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
-# model = ["wan2.7-image", "wan2.7-image-pro"]
-# model_edit = ["wan2.7-image"]
+# model = ["wan2.7-image", "wan2.7-image-pro", "qwen-image-3.0-pro"]
+# model_edit = ["wan2.7-image", "qwen-image-3.0-pro"]
 
 # ── Dummy (cost-free, no network) ────────────────────
 [image.dummy]
@@ -57,8 +57,19 @@ model_edit = ["dummy/instant"]
 # [video]
 # backend = "dashscope"
 # api_url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
-# model_image = ["wan2.7-r2v"]
-# model_text = ["wan2.7-t2v"]
+# model = ["wan2.7-t2v", "wan2.7-r2v", "wan3.0-video",
+#          "happyhorse-1.1-t2v", "happyhorse-1.1-r2v", "happyhorse-1.1-i2v"]
+#
+# The per-model parameter ranges (resolution, duration, ratio, how many
+# reference images) live in services/model_specs.py -- add a new model
+# there when you add it to the list above.
+#
+# Which models work depends on the API key and the endpoint host: the intl
+# host serves the wan models, a workspace host
+# ({workspace}.{region}.maas.aliyuncs.com) serves the happyhorse models.
+# An account in "free tier only" mode answers 403 AllocationQuota.FreeTierOnly
+# once the free quota is used up -- complete the payment details or turn
+# that mode off to use the free-tier models on a paid basis.
 
 [prompts]
 # Prompts used fewer than this many times are hidden from the default list
