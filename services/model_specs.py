@@ -1,4 +1,4 @@
-"""Capability tables for the DashScope models.
+"""Capability tables for the DashScope and MiniMax H3 models.
 
 The advanced-mode panel builds its dropdowns from these tables, so a user can
 only pick parameter values the selected model actually accepts.  The payload
@@ -56,6 +56,14 @@ IMAGE_SPECS: dict[str, ImageSpec] = {
         max_images=10,
     ),
 }
+
+# MiniMax H3 takes "WIDTHxHEIGHT" (note the "x"): 655,360..20,000,000 pixels,
+# aspect ratio 1:3..3:1.  Omitting it makes the API render at its 4K default.
+IMAGE_SPECS["MiniMax-H3-Image"] = ImageSpec(
+    sizes=("auto", "1024x1024", "1536x1024", "1024x1536", "1920x1080", "1080x1920", "2048x2048"),
+    default_size="1024x1024",
+    max_images=16,
+)
 
 _WAN27_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4")
 _WAN30_RATIOS = ("adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16")

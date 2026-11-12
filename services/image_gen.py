@@ -50,7 +50,9 @@ def generate_image(
             bc, prompt, images, model, model_edit, resolution, resolution_edit,
         )
     if backend == "minimax":
-        return _generate_minimax(bc, prompt, first, model, model_edit)
+        return _generate_minimax(
+            bc, prompt, first, model, model_edit, resolution, resolution_edit,
+        )
     return _generate_openai(bc, prompt, first, model, model_edit)
 
 
@@ -298,14 +300,21 @@ def _generate_minimax(
     image_bytes: bytes | None,
     model: str,
     model_edit: str,
+    resolution: str | None = None,
+    resolution_edit: str | None = None,
 ) -> bytes:
     if (not bc.api_url) or (not bc.api_key):
         raise ValueError(
             "MiniMax backend requires IMAGE_API_URL and IMAGE_API_KEY"
         )
 
+    chosen = model_edit if (image_bytes is not None) else model
+    if (chosen.startswith("MiniMax-H3")):
+        active_size = resolution_edit if (image_bytes is not None) else resolution
+        return _generate_minimax_h3(bc, prompt, image_bytes, chosen, active_size)
+
     payload: dict = {
-        "model": model_edit if (image_bytes is not None) else model,
+        "model": chosen,
         "prompt": prompt,
         "response_format": "base64",
     }
@@ -336,6 +345,49 @@ def _generate_minimax(
     result = base64.b64decode(images[0])
     logger.info("MiniMax image generation complete | size={} bytes", len(result))
     return result
+
+
+def _generate_minimax_h3(
+    bc: ImageBackend,
+    prompt: str,
+    image_bytes: bytes | None,
+    model: str,
+    resolution: str | None,
+) -> bytes:
+    # api_url is the image-01 path; H3 lives next to it under the same /v1 base.
+    base = bc.api_url.rsplit("/", 1)[0]
+    payload: dict = {
+        "model": model,
+        "prompt": prompt,
+        "response_format": "b64_json",
+        "output_format": "png",
+    }
+    size = _dashscope_size(model, resolution)
+    if (size):
+        payload["size"] = size
+    if (image_bytes is None):
+        url = f"{base}/images/generations"
+    else:
+        url = f"{base}/images/edits"
+        payload["images"] = [{"image_url": _mime_and_b64(image_bytes)}]
+
+    headers = {
+        "Authorization": f"Bearer {bc.api_key}",
+        "Content-Type": "application/json",
+    }
+    logger.info(
+        "Generating image (minimax-h3) | model={} prompt={!r} has_image={} size={}",
+        model, prompt, image_bytes is not None, size,
+    )
+    resp = _requests.post(url, json=payload, headers=headers)
+    if (not resp.ok):
+        logger.error("MiniMax H3 API error | status={} body={}", resp.status_code, resp.text)
+    resp.raise_for_status()
+
+    item = (resp.json().get("data") or [{}])[0]
+    if (not item.get("b64_json")):
+        raise RuntimeError(f"MiniMax H3 returned no b64_json: {resp.text}")
+    return base64.b64decode(item["b64_json"])
 
 
 # ------------------------------------------------------------------ #

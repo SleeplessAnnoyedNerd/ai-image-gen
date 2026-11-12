@@ -698,3 +698,63 @@ def test_dashscope_qwen_accepts_three_reference_images():
     content = payload["input"]["messages"][0]["content"]
     assert len(content) == 4
     assert content[0] == {"text": "a cat"}
+
+
+def _h3_response():
+    r = MagicMock()
+    r.ok = True
+    r.json.return_value = {"data": [{"b64_json": FAKE_B64}]}
+    r.raise_for_status = MagicMock()
+    return r
+
+
+def test_minimax_h3_text_to_image():
+    """H3 model: uses /images/generations next to the configured path."""
+    cfg = _minimax_cfg()
+    with patch("services.image_gen._requests.post", return_value=_h3_response()) as mock_post:
+        result = generate_image(cfg, prompt="a cat", model="MiniMax-H3-Image")
+    assert (result == FAKE_PNG)
+    assert (mock_post.call_args.args[0] == "https://api.minimax.io/v1/images/generations")
+    payload = mock_post.call_args.kwargs["json"]
+    assert (payload["model"] == "MiniMax-H3-Image")
+    assert (payload["response_format"] == "b64_json")
+    assert ("images" not in payload)
+
+
+def test_minimax_h3_edit():
+    """H3 model with an input image: /images/edits with images[].image_url."""
+    cfg = _minimax_cfg()
+    with patch("services.image_gen._requests.post", return_value=_h3_response()) as mock_post:
+        result = generate_image(
+            cfg, prompt="make it blue", images=[FAKE_PNG], model_edit="MiniMax-H3-Image-Highspeed",
+        )
+    assert (result == FAKE_PNG)
+    assert (mock_post.call_args.args[0] == "https://api.minimax.io/v1/images/edits")
+    payload = mock_post.call_args.kwargs["json"]
+    assert (payload["images"][0]["image_url"].startswith("data:image/png;base64,"))
+    assert ("subject_reference" not in payload)
+
+
+def test_minimax_h3_empty_response_raises():
+    cfg = _minimax_cfg()
+    r = _h3_response()
+    r.json.return_value = {"data": [{"error": "blocked"}]}
+    with patch("services.image_gen._requests.post", return_value=r):
+        with pytest.raises(RuntimeError, match="b64_json"):
+            generate_image(cfg, prompt="a cat", model="MiniMax-H3-Image")
+
+
+def test_minimax_h3_size_default_and_explicit():
+    cfg = _minimax_cfg()
+    with patch("services.image_gen._requests.post", return_value=_h3_response()) as mock_post:
+        generate_image(cfg, prompt="a cat", model="MiniMax-H3-Image")
+        assert (mock_post.call_args.kwargs["json"]["size"] == "1024x1024")
+        generate_image(cfg, prompt="a cat", model="MiniMax-H3-Image", resolution="1920x1080")
+        assert (mock_post.call_args.kwargs["json"]["size"] == "1920x1080")
+        generate_image(cfg, prompt="a cat", model="MiniMax-H3-Image", resolution="auto")
+        assert ("size" not in mock_post.call_args.kwargs["json"])
+        generate_image(
+            cfg, prompt="x", images=[FAKE_PNG], model_edit="MiniMax-H3-Image",
+            resolution_edit="1080x1920",
+        )
+        assert (mock_post.call_args.kwargs["json"]["size"] == "1080x1920")

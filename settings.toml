@@ -23,8 +23,8 @@ model_edit = ["fal-ai/gpt-image-1.5/edit", "fal-ai/flux-2/klein/9b/base/edit/lor
 
 [image.minimax]
 api_url = "https://api.minimax.io/v1/image_generation"
-model = ["image-01", "image-01-live"]
-model_edit = ["image-01", "image-01-live"]
+model = ["image-01", "image-01-live", "MiniMax-H3-Image"]
+model_edit = ["image-01", "image-01-live", "MiniMax-H3-Image"]
 
 [image.dummy]
 api_url    = "dummy://local"

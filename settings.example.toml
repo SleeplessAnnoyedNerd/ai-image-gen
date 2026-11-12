@@ -51,8 +51,8 @@ model_edit = ["dummy/instant"]
 # ── MiniMax (image-01 / image-01-live) ────────────────
 # [image.minimax]
 # api_url = "https://api.minimax.io/v1/image_generation"
-# model = ["image-01", "image-01-live"]
-# model_edit = ["image-01", "image-01-live"]
+# model = ["image-01", "image-01-live", "MiniMax-H3-Image"]
+# model_edit = ["image-01", "image-01-live", "MiniMax-H3-Image"]
 
 # [video]
 # backend = "dashscope"
