@@ -62,7 +62,7 @@ IMAGE_SPECS: dict[str, ImageSpec] = {
 IMAGE_SPECS["MiniMax-H3-Image"] = ImageSpec(
     sizes=("auto", "1024x1024", "1536x1024", "1024x1536", "1920x1080", "1080x1920", "2048x2048"),
     default_size="1024x1024",
-    max_images=16,
+    max_images=1,  # generate_image() forwards only the first reference image
 )
 
 _WAN27_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4")

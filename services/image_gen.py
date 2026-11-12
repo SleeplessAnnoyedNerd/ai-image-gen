@@ -362,7 +362,8 @@ def _generate_minimax_h3(
         "response_format": "b64_json",
         "output_format": "png",
     }
-    size = _dashscope_size(model, resolution)
+    # Unlisted H3 models get no size: _dashscope_size would fall back to "1K".
+    size = _dashscope_size(model, resolution) if (image_spec(model)) else None
     if (size):
         payload["size"] = size
     if (image_bytes is None):

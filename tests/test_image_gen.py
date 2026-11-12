@@ -733,6 +733,7 @@ def test_minimax_h3_edit():
     payload = mock_post.call_args.kwargs["json"]
     assert (payload["images"][0]["image_url"].startswith("data:image/png;base64,"))
     assert ("subject_reference" not in payload)
+    assert ("size" not in payload)  # unlisted model: no DashScope "1K" fallback
 
 
 def test_minimax_h3_empty_response_raises():
